@@ -42,6 +42,18 @@ class FacturifyClient(CFDIProvider):
         endpoint = f"{self._base_url}/api/v1/cliente/?limit={limit}&offset={offset}"
         return await self._get(endpoint)
 
+    async def cancel_invoice(self, cfdi_uuid: str) -> dict:
+        endpoint = f"{self._base_url}/api/v1/factura/{cfdi_uuid}/cancel/"
+        return await self._put(endpoint)
+
+    async def get_invoice_pdf(self, cfdi_uuid: str) -> dict:
+        endpoint = f"{self._base_url}/api/v1/factura/{cfdi_uuid}/pdf/"
+        return await self._get_with_cache_control(endpoint)
+
+    async def get_invoice_xml(self, cfdi_uuid: str) -> dict:
+        endpoint = f"{self._base_url}/api/v1/factura/{cfdi_uuid}/xml"
+        return await self._get_with_cache_control(endpoint)
+
     async def _post(self, url: str, payload: dict) -> dict:
         headers = await self._get_headers()
         async for attempt in self._retry:  # pragma: no branch - tenacity controla el flujo
@@ -55,6 +67,20 @@ class FacturifyClient(CFDIProvider):
         headers = await self._get_headers()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.get(url, headers=headers)
+            return self._handle_response(response)
+
+    async def _get_with_cache_control(self, url: str) -> dict:
+        headers = await self._get_headers()
+        headers["cache-control"] = "no-cache"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.get(url, headers=headers)
+            return self._handle_response(response)
+
+    async def _put(self, url: str) -> dict:
+        headers = await self._get_headers()
+        headers["cache-control"] = "no-cache"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.put(url, headers=headers)
             return self._handle_response(response)
 
     async def _get_headers(self) -> dict[str, str]:

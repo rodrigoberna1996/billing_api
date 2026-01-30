@@ -282,3 +282,85 @@ async def get_invoice_endpoint(
         facturify_status=invoice.status.value,
         facturify_response=invoice.facturify_response,
     )
+
+
+@router.put("/{cfdi_uuid}/cancel")
+async def cancel_invoice_endpoint(
+    cfdi_uuid: str,
+) -> dict:
+    """Cancela una factura en Facturify usando su UUID de CFDI."""
+    from app.interfaces.api.deps import get_app_settings
+    from app.infrastructure.http.facturify_client import FacturifyClient
+    
+    settings = get_app_settings()
+    facturify_client = FacturifyClient(
+        base_url=settings.facturify_base_url,
+        timeout=settings.facturify_timeout,
+        max_retries=settings.facturify_max_retries,
+        retry_backoff=settings.facturify_retry_backoff,
+    )
+    
+    try:
+        response = await facturify_client.cancel_invoice(cfdi_uuid)
+        return response
+    except exceptions.ExternalServiceError as error:
+        error_detail = {
+            "message": str(error),
+            "type": "external_service_error",
+            "hint": "Verifica que el UUID del CFDI sea válido y que la factura pueda ser cancelada"
+        }
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
+
+
+@router.get("/{cfdi_uuid}/pdf")
+async def get_invoice_pdf_endpoint(
+    cfdi_uuid: str,
+) -> dict:
+    """Obtiene la URL del PDF de una factura."""
+    from app.interfaces.api.deps import get_app_settings
+    from app.infrastructure.http.facturify_client import FacturifyClient
+    
+    settings = get_app_settings()
+    facturify_client = FacturifyClient(
+        base_url=settings.facturify_base_url,
+        timeout=settings.facturify_timeout,
+        max_retries=settings.facturify_max_retries,
+        retry_backoff=settings.facturify_retry_backoff,
+    )
+    
+    try:
+        response = await facturify_client.get_invoice_pdf(cfdi_uuid)
+        return response
+    except exceptions.ExternalServiceError as error:
+        error_detail = {
+            "message": str(error),
+            "type": "external_service_error",
+        }
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
+
+
+@router.get("/{cfdi_uuid}/xml")
+async def get_invoice_xml_endpoint(
+    cfdi_uuid: str,
+) -> dict:
+    """Obtiene la URL del XML de una factura."""
+    from app.interfaces.api.deps import get_app_settings
+    from app.infrastructure.http.facturify_client import FacturifyClient
+    
+    settings = get_app_settings()
+    facturify_client = FacturifyClient(
+        base_url=settings.facturify_base_url,
+        timeout=settings.facturify_timeout,
+        max_retries=settings.facturify_max_retries,
+        retry_backoff=settings.facturify_retry_backoff,
+    )
+    
+    try:
+        response = await facturify_client.get_invoice_xml(cfdi_uuid)
+        return response
+    except exceptions.ExternalServiceError as error:
+        error_detail = {
+            "message": str(error),
+            "type": "external_service_error",
+        }
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
