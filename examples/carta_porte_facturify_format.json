@@ -1,0 +1,133 @@
+{
+  "emisor": {
+    "uuid": "6fe768d7-922f-4b8a-b1b7-ac2c30300d89"
+  },
+  "receptor": {
+    "uuid": "96076f99-7105-4a62-a732-1ea33d88f4a0"
+  },
+  "factura": {
+    "version": "4.0",
+    "fecha": "2026-01-21 15:58:20",
+    "tipo": "ingreso",
+    "forma_de_pago": "03",
+    "moneda": "MXN",
+    "tipo_de_cambio": "1",
+    "exportacion": "01",
+    "subtotal": 10.0,
+    "impuesto_federal": 1.6,
+    "total": 11.6,
+    "serie": "CPT",
+    "conceptos": [
+      {
+        "cantidad": 1,
+        "clave_producto_servicio": "78101800",
+        "clave_unidad_de_medida": "E48",
+        "descripcion": "SERVICIO DE TRANSPORTE",
+        "valor_unitario": 10.0,
+        "total": 10.0,
+        "objeto_imp": "02",
+        "impuestos": {
+          "traslados": {
+            "traslado": [
+              {
+                "base": 10.0,
+                "impuesto": "002",
+                "tipoFactor": "Tasa",
+                "tasaOCuota": 0.16,
+                "importe": 1.6
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Complemento": {
+      "CartaPorte": {
+        "Version": "3.1",
+        "IdCCP": "CCC874E3-2C0E-4C3D-8822-6F7D8408E774",
+        "TranspInternac": "No",
+        "TotalDistRec": 2673,
+        "Ubicaciones": {
+          "Ubicacion": [
+            {
+              "TipoUbicacion": "Origen",
+              "IDUbicacion": "OR000000",
+              "RFCRemitenteDestinatario": "THE791105HP2",
+              "FechaHoraSalidaLlegada": "2026-01-21T08:30:00",
+              "Domicilio": {
+                "Calle": "PARQUE INDUSTRIAL",
+                "CodigoPostal": "54257",
+                "Municipio": "045",
+                "Estado": "MEX",
+                "Pais": "MEX"
+              }
+            },
+            {
+              "TipoUbicacion": "Destino",
+              "IDUbicacion": "DE000001",
+              "RFCRemitenteDestinatario": "THE791105HP2",
+              "FechaHoraSalidaLlegada": "2026-01-21T14:30:00",
+              "DistanciaRecorrida": 2673,
+              "Domicilio": {
+                "Calle": "Blvd. La Encantada Lote 5",
+                "CodigoPostal": "22244",
+                "Estado": "BCN",
+                "Localidad": "04",
+                "Municipio": "004",
+                "Pais": "MEX"
+              }
+            }
+          ]
+        },
+        "Mercancias": {
+          "NumTotalMercancias": 1,
+          "PesoNetoTotal": 18000,
+          "PesoBrutoTotal": 18000,
+          "UnidadPeso": "KGM",
+          "Mercancia": [
+            {
+              "BienesTransp": "11131504",
+              "Cantidad": 18,
+              "ClaveUnidad": "H87",
+              "Descripcion": "Cueros",
+              "PesoEnKg": 18000
+            }
+          ],
+          "Autotransporte": {
+            "PermSCT": "TPAF02",
+            "NumPermisoSCT": "2242ALO20082021001011",
+            "IdentificacionVehicular": {
+              "ConfigVehicular": "T3S2",
+              "PlacaVM": "05BH7S",
+              "AnioModeloVM": "2025",
+              "PesoBrutoVehicular": "46.5"
+            },
+            "Seguros": {
+              "AseguraRespCivil": "AXA Seguros S.A. de C.V.",
+              "PolizaRespCivil": "DAA667380000-642",
+              "PrimaSeguro": "1200"
+            },
+            "Remolques": {
+              "Remolque": [
+                {
+                  "SubTipoRem": "CTR007",
+                  "Placa": "03UX8W"
+                }
+              ]
+            }
+          }
+        },
+        "FiguraTransporte": {
+          "TiposFigura": [
+            {
+              "TipoFigura": "01",
+              "RFCFigura": "OECG020323J63",
+              "NumLicencia": "LFD01011247",
+              "NombreFigura": "GAMALIEL OLVERA CID"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

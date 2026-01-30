@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.env.*
+!.env.example
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
+.venv/
+.vscode/
+.idea/
+*.db
+alembic.ini.bak
