@@ -17,8 +17,12 @@ RUN chown appuser:appgroup /app
 # 4. Copiar codigo con el dueno correcto
 COPY --chown=appuser:appgroup . .
 
+RUN chmod +x /app/entrypoint.sh
+
 USER appuser
 
 EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 CMD ["gunicorn","app.main:app","-k","uvicorn.workers.UvicornWorker","-w","2","--timeout","120","--keep-alive","5","-b","0.0.0.0:8000","--access-logfile","-","--error-logfile","-"]
