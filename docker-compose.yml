@@ -1,5 +1,33 @@
 version: "3.9"
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: billing_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://billing_api:billing_api@postgres:5432/billing_api
+      REDIS_URL: redis://redis:6379/0
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
   postgres:
     image: postgres:16-alpine
     container_name: billing_api_db
