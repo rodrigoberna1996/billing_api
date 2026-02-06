@@ -8,18 +8,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://billing_api:billing_api@postgres:5432/billing_api
-      REDIS_URL: redis://redis:6379/0
     expose:
       - "8000"
     ports:
       - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -27,39 +19,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    networks:
+      - docker_default
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: billing_api_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: billing_api
-      POSTGRES_USER: billing_api
-      POSTGRES_PASSWORD: billing_api
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: billing_api_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-  redis_data:
+networks:
+  docker_default:
+    external: true
