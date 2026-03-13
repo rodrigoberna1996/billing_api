@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.domain.enums import ShipmentLocationType
 from app.domain.entities import Invoice, InvoiceItem, Party, ShipmentLocation
@@ -21,7 +22,7 @@ class FacturifyPayloadBuilder:
         
         factura_block = {
             "version": "4.0",
-            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "fecha": datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S"),
             "tipo": invoice.type.value,
             "forma_de_pago": invoice.payment_form,
             "moneda": invoice.currency,

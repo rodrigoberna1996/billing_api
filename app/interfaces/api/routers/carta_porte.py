@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.application.dtos import CartaPorteRequest, CartaPorteResponse, FacturifyCartaPorteRequest
 from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory
@@ -12,6 +11,7 @@ from app.application.transformers import FacturifyToInternalTransformer
 from app.core import exceptions
 from app.core.error_parser import FacturifyErrorParser
 from app.interfaces.api.deps import get_create_carta_porte_service, get_uow_factory
+from app.interfaces.api.limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +19,13 @@ router = APIRouter(prefix="/v1/cfdi", tags=["cfdi"])
 
 
 @router.post("/carta-porte", response_model=CartaPorteResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 async def create_carta_porte_endpoint(
+    request: Request,
     payload: CartaPorteRequest,
     service: CreateCartaPorteService = Depends(get_create_carta_porte_service),
 ) -> CartaPorteResponse:
-    logger.info("=" * 80)
-    logger.info("REQUEST RECIBIDO EN /v1/cfdi/carta-porte")
-    logger.info("JSON recibido:")
-    logger.info(json.dumps(payload.model_dump(mode="json"), indent=2, ensure_ascii=False))
-    logger.info("=" * 80)
-    
+    logger.info("Creando carta porte para empresa %s", getattr(payload, "empresa_uuid", "N/A"))
     try:
         invoice = await service.execute(payload)
     except exceptions.ExternalServiceError as error:
@@ -43,10 +40,7 @@ async def create_carta_porte_endpoint(
         logger.error("Error al procesar carta porte: %s", str(error))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
-    logger.info("=" * 80)
-    logger.info("RESPUESTA DE FACTURIFY:")
-    logger.info(json.dumps(invoice.facturify_response, indent=2, ensure_ascii=False))
-    logger.info("=" * 80)
+    logger.info("Carta porte creada: invoice_id=%s uuid=%s", invoice.id, invoice.facturify_uuid)
 
     return CartaPorteResponse(
         invoice_id=invoice.id,
@@ -58,7 +52,9 @@ async def create_carta_porte_endpoint(
 
 
 @router.post("/carta-porte/facturify", response_model=CartaPorteResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 async def create_carta_porte_facturify_format(
+    request: Request,
     payload: FacturifyCartaPorteRequest,
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
 ) -> CartaPorteResponse:
@@ -69,9 +65,8 @@ async def create_carta_porte_facturify_format(
     from app.infrastructure.http.facturify_client import FacturifyClient
     from datetime import datetime
     
-    logger.info("JSON recibido en /v1/cfdi/carta-porte/facturify:")
-    logger.info(json.dumps(payload.model_dump(mode="json", exclude_none=True), indent=2, ensure_ascii=False))
-    
+    logger.info("Procesando carta porte (formato Facturify directo)")
+
     facturify_payload = payload.model_dump(mode="json", exclude_none=True)
     
     # Obtener o crear el receptor (cliente) basado en el UUID de Facturify
@@ -243,7 +238,7 @@ async def create_carta_porte_facturify_format(
         if cfdi_uuid:
             invoice.mark_issued(
                 uuid=cfdi_uuid,
-                payload=None,
+                payload=facturify_response,
                 serie=serie,
                 folio=folio,
                 factura_id=factura_id,

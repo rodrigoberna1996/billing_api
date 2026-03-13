@@ -156,7 +156,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         ]
         domain_invoice = Invoice(
             id=invoice.id,
-            issuer_id=str(invoice.issuer_id),
+            issuer_id=invoice.issuer_id,
             recipient=recipient,
             type=enums.InvoiceType(invoice.cfdi_type),
             complement=enums.ComplementType(invoice.complement),
