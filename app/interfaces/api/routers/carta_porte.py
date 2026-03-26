@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 
 from app.application.dtos import CartaPorteRequest, CartaPorteResponse, FacturifyCartaPorteRequest
 from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory
@@ -22,7 +20,7 @@ router = APIRouter(prefix="/v1/cfdi", tags=["cfdi"])
 @limiter.limit("20/minute")
 async def create_carta_porte_endpoint(
     request: Request,
-    payload: CartaPorteRequest,
+    payload: CartaPorteRequest = Body(...),
     service: CreateCartaPorteService = Depends(get_create_carta_porte_service),
 ) -> CartaPorteResponse:
     logger.info("Creando carta porte para empresa %s", getattr(payload, "empresa_uuid", "N/A"))
@@ -55,7 +53,7 @@ async def create_carta_porte_endpoint(
 @limiter.limit("20/minute")
 async def create_carta_porte_facturify_format(
     request: Request,
-    payload: FacturifyCartaPorteRequest,
+    payload: FacturifyCartaPorteRequest = Body(...),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
 ) -> CartaPorteResponse:
     from app.domain.enums import InvoiceStatus, InvoiceType, ComplementType, TransportMode, ShipmentLocationType
@@ -238,7 +236,7 @@ async def create_carta_porte_facturify_format(
         if cfdi_uuid:
             invoice.mark_issued(
                 uuid=cfdi_uuid,
-                payload=facturify_response,
+                payload=None,
                 serie=serie,
                 folio=folio,
                 factura_id=factura_id,

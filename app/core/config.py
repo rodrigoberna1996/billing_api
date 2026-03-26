@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     facturify_retry_backoff: float = Field(default=2.0, alias="FACTURIFY_RETRY_BACKOFF")
     facturify_token_refresh_buffer: int = Field(default=60, alias="FACTURIFY_TOKEN_REFRESH_BUFFER")
 
+    internal_api_key: str | None = Field(default=None, alias="INTERNAL_API_KEY")
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",

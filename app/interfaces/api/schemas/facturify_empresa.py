@@ -1,7 +1,7 @@
 """Schemas for Facturify empresa (company) endpoints."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class Pagination(BaseModel):
@@ -21,6 +21,8 @@ class Meta(BaseModel):
 
 class Empresa(BaseModel):
     """Empresa registrada en Facturify."""
+    model_config = ConfigDict(populate_by_name=True)
+
     uuid: str
     tipo: str
     razon_social: str
@@ -40,7 +42,7 @@ class Empresa(BaseModel):
     inscrito_en_terceros: int
     factura_por_cuenta_de_terceros: int
     facturacion_por_terceros_habilitado: int | None = None
-    schema: str | None = None
+    schema_: str | None = Field(default=None, alias="schema")
     status: str
     direccion_fiscal_pdf: bool | None = None
     razon_status: str
