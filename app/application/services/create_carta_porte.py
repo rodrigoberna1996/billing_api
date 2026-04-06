@@ -1,7 +1,6 @@
 """Caso de uso para timbrar CFDI de ingreso/traslado con Carta Porte."""
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
 
@@ -10,7 +9,6 @@ from app.application.ports.cfdi_provider import CFDIProvider
 from app.application.ports.repositories import UnitOfWork
 from app.core import exceptions
 from app.domain import enums
-from app.infrastructure.http.facturify_empresa_client import get_facturify_empresa_client
 from app.domain.entities import (
     Address,
     GoodsItem,
@@ -95,6 +93,7 @@ class CreateCartaPorteService:
                 factura_id=data.get("factura_id"),
                 provider=data.get("provider"),
             )
+            invoice.form_snapshot = payload.model_dump(mode="json")
         else:
             invoice.mark_failed()
 

@@ -96,9 +96,9 @@ class FacturifyClient(CFDIProvider):
         
         # Si la respuesta indica error (success=false), lanzar excepción con mensaje parseado
         if not response_data.get("success", True):
-            from app.core.error_parser import FacturifyErrorParser
-            
             import json
+
+            from app.core.error_parser import FacturifyErrorParser
             logger.error("Respuesta completa de Facturify:")
             logger.error(json.dumps(response_data, indent=2, ensure_ascii=False))
             

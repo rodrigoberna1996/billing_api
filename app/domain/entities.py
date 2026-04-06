@@ -142,6 +142,7 @@ class Invoice:
     folio: int | None = None
     factura_id: str | None = None
     provider: str | None = None
+    form_snapshot: dict | None = None
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     id: UUID = field(default_factory=uuid4)

@@ -3,11 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 
-from app.application.dtos import CartaPorteRequest, CartaPorteResponse, FacturifyCartaPorteRequest
+from app.application.dtos import (
+    CartaPorteRequest,
+    CartaPorteResponse,
+    FacturifyCartaPorteRequest,
+    FormTemplateResponse,
+)
 from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory
-from app.application.transformers import FacturifyToInternalTransformer
 from app.core import exceptions
-from app.core.error_parser import FacturifyErrorParser
 from app.interfaces.api.deps import get_create_carta_porte_service, get_uow_factory
 from app.interfaces.api.limiter import limiter
 
@@ -56,12 +59,29 @@ async def create_carta_porte_facturify_format(
     payload: FacturifyCartaPorteRequest = Body(...),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
 ) -> CartaPorteResponse:
-    from app.domain.enums import InvoiceStatus, InvoiceType, ComplementType, TransportMode, ShipmentLocationType
-    from app.domain.entities import Invoice, InvoiceItem, Shipment, ShipmentLocation, GoodsItem, TransportFigure, Vehicle, Party, Address, Money
-    from uuid import uuid4
-    from app.interfaces.api.deps import get_app_settings
-    from app.infrastructure.http.facturify_client import FacturifyClient
     from datetime import datetime
+
+    from app.domain.entities import (
+        Address,
+        GoodsItem,
+        Invoice,
+        InvoiceItem,
+        Money,
+        Party,
+        Shipment,
+        ShipmentLocation,
+        TransportFigure,
+        Vehicle,
+    )
+    from app.domain.enums import (
+        ComplementType,
+        InvoiceStatus,
+        InvoiceType,
+        ShipmentLocationType,
+        TransportMode,
+    )
+    from app.infrastructure.http.facturify_client import FacturifyClient
+    from app.interfaces.api.deps import get_app_settings
     
     logger.info("Procesando carta porte (formato Facturify directo)")
 
@@ -242,6 +262,7 @@ async def create_carta_porte_facturify_format(
                 factura_id=factura_id,
                 provider=provider,
             )
+            invoice.form_snapshot = facturify_payload
         else:
             invoice.mark_failed()
         
@@ -277,13 +298,36 @@ async def get_invoice_endpoint(
     )
 
 
+@router.get("/{invoice_id}/form-template", response_model=FormTemplateResponse)
+@limiter.limit("60/minute")
+async def get_form_template_endpoint(
+    request: Request,
+    invoice_id: UUID,
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> FormTemplateResponse:
+    from app.domain.enums import InvoiceStatus
+
+    async with uow_factory() as uow:
+        invoice = await uow.invoices.get_by_id(invoice_id)
+    if (
+        invoice is None
+        or invoice.status != InvoiceStatus.issued
+        or not invoice.form_snapshot
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Plantilla no disponible (solo facturas timbradas con snapshot guardado).",
+        )
+    return FormTemplateResponse(invoice_id=invoice.id, payload=invoice.form_snapshot)
+
+
 @router.put("/{cfdi_uuid}/cancel")
 async def cancel_invoice_endpoint(
     cfdi_uuid: str,
 ) -> dict:
     """Cancela una factura en Facturify usando su UUID de CFDI."""
-    from app.interfaces.api.deps import get_app_settings
     from app.infrastructure.http.facturify_client import FacturifyClient
+    from app.interfaces.api.deps import get_app_settings
     
     settings = get_app_settings()
     facturify_client = FacturifyClient(
@@ -310,8 +354,8 @@ async def get_invoice_pdf_endpoint(
     cfdi_uuid: str,
 ) -> dict:
     """Obtiene la URL del PDF de una factura."""
-    from app.interfaces.api.deps import get_app_settings
     from app.infrastructure.http.facturify_client import FacturifyClient
+    from app.interfaces.api.deps import get_app_settings
     
     settings = get_app_settings()
     facturify_client = FacturifyClient(
@@ -337,8 +381,8 @@ async def get_invoice_xml_endpoint(
     cfdi_uuid: str,
 ) -> dict:
     """Obtiene la URL del XML de una factura."""
-    from app.interfaces.api.deps import get_app_settings
     from app.infrastructure.http.facturify_client import FacturifyClient
+    from app.interfaces.api.deps import get_app_settings
     
     settings = get_app_settings()
     facturify_client = FacturifyClient(

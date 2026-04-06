@@ -10,7 +10,6 @@ from app.infrastructure.http.facturify_empresa_client import (
     get_facturify_empresa_client,
 )
 from app.interfaces.api.schemas.facturify_empresa import (
-    Empresa,
     EmpresaListResponse,
     EmpresaResponse,
 )

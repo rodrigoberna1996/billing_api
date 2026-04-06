@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.domain.enums import ShipmentLocationType
 from app.domain.entities import Invoice, InvoiceItem, Party, ShipmentLocation
+from app.domain.enums import ShipmentLocationType
 
 
 class FacturifyPayloadBuilder:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, constr
@@ -272,3 +272,10 @@ class CartaPorteResponse(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+
+
+class FormTemplateResponse(BaseModel):
+    """Snapshot del formulario guardado al timbrar (prellenado para nuevas facturas)."""
+
+    invoice_id: UUID
+    payload: dict[str, Any]

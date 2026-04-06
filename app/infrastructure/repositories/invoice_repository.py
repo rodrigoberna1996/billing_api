@@ -48,6 +48,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
             payment_method=invoice.payment_method,
             expedition_place=invoice.expedition_place,
             status=invoice.status.value,
+            form_snapshot=invoice.form_snapshot,
         )
         invoice_orm.items = [
             models.InvoiceItemORM(
@@ -129,6 +130,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         invoice_orm.folio = invoice.folio
         invoice_orm.factura_id = invoice.factura_id
         invoice_orm.provider = invoice.provider
+        invoice_orm.form_snapshot = invoice.form_snapshot
         await self._session.flush()
         return invoice
 
@@ -177,6 +179,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         domain_invoice.folio = invoice.folio
         domain_invoice.factura_id = invoice.factura_id
         domain_invoice.provider = invoice.provider
+        domain_invoice.form_snapshot = invoice.form_snapshot
         return domain_invoice
 
     def _party_from_client(self, client: models.ClientORM) -> Party:

@@ -1,8 +1,6 @@
 """DTOs para el manejo de clientes desde Facturify."""
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 

@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-import orjson
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
-from app.core.redis import delete_key, get_ttl, get_value, set_with_expiry
+from app.core.redis import get_ttl, get_value, set_with_expiry
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 """Schemas for Facturify empresa (company) endpoints."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Pagination(BaseModel):

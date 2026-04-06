@@ -22,7 +22,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         body = await request.body()
         logger.error(f"📏 Content-Length: {len(body)} bytes")
         logger.error("📦 RAW BODY recibido:")
-        logger.error(body.decode('utf-8', errors='replace'))
+        logger.error(body.decode("utf-8", errors="replace"))
         
         try:
             parsed = json.loads(body)
@@ -39,8 +39,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         logger.error(f"  - Tipo: {error.get('type')}")
         logger.error(f"    Ubicación: {error.get('loc')}")
         logger.error(f"    Mensaje: {error.get('msg')}")
-        input_value = error.get('input', 'N/A')
-        input_str = str(input_value)[:200] if input_value != 'N/A' else 'N/A'
+        input_value = error.get("input", "N/A")
+        input_str = str(input_value)[:200] if input_value != "N/A" else "N/A"
         logger.error(f"    Input: {input_str}")
     
     logger.error("=" * 100)

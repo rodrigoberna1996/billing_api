@@ -7,7 +7,10 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.domain.enums import ComplementType, InvoiceStatus, InvoiceType, ShipmentLocationType, TransportMode
+from app.domain.enums import (
+    InvoiceStatus,
+    ShipmentLocationType,
+)
 from app.infrastructure.orm.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -69,6 +72,7 @@ class InvoiceORM(TimestampMixin, UUIDMixin, Base):
     folio: Mapped[int | None]
     factura_id: Mapped[str | None] = mapped_column(String(50))
     provider: Mapped[str | None] = mapped_column(String(10))
+    form_snapshot: Mapped[dict | None] = mapped_column(JSONB)
 
     issuer: Mapped[CompanyORM | None] = relationship("CompanyORM", back_populates="invoices")
     recipient: Mapped[ClientORM] = relationship("ClientORM", back_populates="invoices")

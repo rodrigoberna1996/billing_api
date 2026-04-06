@@ -6,8 +6,12 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, ORJSONResponse
+from starlette.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIASGIMiddleware
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.database import dispose_engine, get_engine
 from app.core.logging import configure_logging
 from app.core.redis import close_redis, get_redis
@@ -16,16 +20,37 @@ from app.infrastructure.http.facturify_auth_client import (
     get_facturify_auth_client,
 )
 from app.infrastructure.http.facturify_empresa_client import close_facturify_empresa_client
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIASGIMiddleware
-
 from app.interfaces.api.exception_handlers import validation_exception_handler
 from app.interfaces.api.internal_auth import require_internal_key
 from app.interfaces.api.limiter import limiter
-from app.interfaces.api.routers import carta_porte, clients, facturify_auth, facturify_empresa, health
+from app.interfaces.api.routers import (
+    carta_porte,
+    clients,
+    drafts,
+    facturify_auth,
+    facturify_empresa,
+    health,
+)
 
 logger = logging.getLogger(__name__)
+
+_DEV_CORS_ORIGINS = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+)
+
+
+def _cors_origins(settings: Settings) -> list[str]:
+    raw = settings.cors_allowed_origins.strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    if settings.env == "development":
+        return list(_DEV_CORS_ORIGINS)
+    return []
 
 
 @asynccontextmanager
@@ -69,6 +94,15 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIASGIMiddleware)
+    cors_origins = _cors_origins(settings)
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -86,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(facturify_empresa.router, dependencies=internal_dep)
     app.include_router(carta_porte.router, dependencies=internal_dep)
     app.include_router(clients.router, dependencies=internal_dep)
+    app.include_router(drafts.router, dependencies=internal_dep)
     return app
 
 

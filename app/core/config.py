@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     redis_decode_responses: bool = Field(default=True, alias="REDIS_DECODE_RESPONSES")
 
+    invoice_draft_ttl_seconds: int = Field(default=2592000, alias="INVOICE_DRAFT_TTL_SECONDS")
+    invoice_draft_max_bytes: int = Field(default=524288, alias="INVOICE_DRAFT_MAX_BYTES")
+
     facturify_base_url: str = Field(default="https://api-sandbox.facturify.com", alias="FACTURIFY_BASE_URL")
     facturify_api_key: str = Field(default="demo-token", alias="FACTURIFY_API_KEY")
     facturify_api_secret: str = Field(default="demo-secret", alias="FACTURIFY_API_SECRET")
@@ -36,6 +39,11 @@ class Settings(BaseSettings):
     facturify_token_refresh_buffer: int = Field(default=60, alias="FACTURIFY_TOKEN_REFRESH_BUFFER")
 
     internal_api_key: str | None = Field(default=None, alias="INTERNAL_API_KEY")
+
+    cors_allowed_origins: str = Field(
+        default="",
+        alias="CORS_ALLOWED_ORIGINS",
+    )
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

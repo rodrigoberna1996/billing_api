@@ -1,8 +1,6 @@
 """Dependencias para FastAPI."""
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from fastapi import Depends
 
 from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory

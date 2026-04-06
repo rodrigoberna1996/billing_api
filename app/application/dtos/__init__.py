@@ -1,8 +1,8 @@
-from .clients import ClientDTO, ClientsListResponse, ErrorResponse, MetaInfo, PaginationInfo
 from .carta_porte import (
     AddressDTO,
     CartaPorteRequest,
     CartaPorteResponse,
+    FormTemplateResponse,
     InvoiceItemDTO,
     PartyDTO,
     ShipmentDTO,
@@ -11,6 +11,8 @@ from .carta_porte import (
     ShipmentVehicleDTO,
     TransportFigureDTO,
 )
+from .clients import ClientDTO, ClientsListResponse, ErrorResponse, MetaInfo, PaginationInfo
+from .drafts import DraftCreateBody, DraftCreatedResponse, DraftGetResponse, DraftUpsertBody
 from .facturify_format import FacturifyCartaPorteRequest
 
 __all__ = [
@@ -19,8 +21,13 @@ __all__ = [
     "CartaPorteResponse",
     "ClientDTO",
     "ClientsListResponse",
+    "DraftCreateBody",
+    "DraftCreatedResponse",
+    "DraftGetResponse",
+    "DraftUpsertBody",
     "ErrorResponse",
     "FacturifyCartaPorteRequest",
+    "FormTemplateResponse",
     "InvoiceItemDTO",
     "MetaInfo",
     "PaginationInfo",
