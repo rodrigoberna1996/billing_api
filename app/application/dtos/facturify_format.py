@@ -175,7 +175,7 @@ class FacturaDTO(BaseModel):
     fecha: str
     tipo: Literal["ingreso", "traslado"] = "ingreso"
     forma_de_pago: str = "03"
-    metodo_de_pago: str = Field(default="PUE", alias="metodo_pago")
+    metodo_de_pago: str = Field(default="PPD", alias="metodo_pago")
     moneda: str = "MXN"
     tipo_de_cambio: str = "1"
     exportacion: str = "01"
