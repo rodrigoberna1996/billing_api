@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.ports.repositories import UnitOfWork
 from app.infrastructure.repositories import (
     SQLAlchemyClientGateway,
-    SQLAlchemyCompanyGateway,
     SQLAlchemyInvoiceRepository,
 )
 
@@ -15,13 +14,11 @@ class SQLAlchemyUnitOfWork(UnitOfWork):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
         self.session: AsyncSession | None = None
-        self.companies = None
         self.clients = None
         self.invoices = None
 
     async def __aenter__(self) -> "SQLAlchemyUnitOfWork":
         self.session = self._session_factory()
-        self.companies = SQLAlchemyCompanyGateway(self.session)
         self.clients = SQLAlchemyClientGateway(self.session)
         self.invoices = SQLAlchemyInvoiceRepository(self.session)
         return self

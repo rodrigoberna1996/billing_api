@@ -1,82 +1,73 @@
-"""API endpoints for Facturify empresa management."""
+"""Endpoint de empresa/emisor — devuelve el emisor configurado en .env (sin llamar Facturify)."""
 from __future__ import annotations
 
-import logging
+import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, status
 
-from app.infrastructure.http.facturify_empresa_client import (
-    FacturifyEmpresaError,
-    get_facturify_empresa_client,
-)
+from app.core.config import Settings
+from app.interfaces.api.deps import get_app_settings
 from app.interfaces.api.schemas.facturify_empresa import (
+    Empresa,
     EmpresaListResponse,
     EmpresaResponse,
+    Meta,
+    Pagination,
 )
 
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/v1/facturify/empresa", tags=["Empresa"])
 
-router = APIRouter(prefix="/api/v1/facturify/empresa", tags=["Facturify Empresa"])
+
+def _emisor_from_settings(settings: Settings) -> Empresa:
+    return Empresa(
+        uuid=str(uuid.uuid5(uuid.NAMESPACE_DNS, settings.facturalo_emisor_rfc or "default")),
+        tipo="moral",
+        razon_social=settings.facturalo_emisor_nombre,
+        organizacion_uuid="",
+        rfc=settings.facturalo_emisor_rfc,
+        regimen=settings.facturalo_emisor_regimen,
+        cp=settings.facturalo_emisor_cp,
+        calle="",
+        colonia="",
+        delegacion_municipio="",
+        estado="",
+        curp="",
+        inscrito_en_terceros=0,
+        factura_por_cuenta_de_terceros=0,
+        status="active",
+        razon_status="Activo",
+    )
 
 
 @router.get(
     "/",
     response_model=EmpresaListResponse,
     status_code=status.HTTP_200_OK,
-    summary="Get all empresas",
-    description="Retrieves all empresas (companies) from Facturify.",
+    summary="Obtiene el emisor configurado",
+    description="Retorna el emisor (empresa) configurado vía variables de entorno FACTURALO_EMISOR_*.",
 )
-async def get_empresas() -> EmpresaListResponse:
-    """Get all empresas from Facturify."""
-    try:
-        client = await get_facturify_empresa_client()
-        response_data = await client.get_empresas()
-        return EmpresaListResponse(**response_data)
-    except FacturifyEmpresaError as e:
-        logger.error(f"Failed to get empresas: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error getting empresas: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
+async def get_empresas(
+    settings: Settings = Depends(get_app_settings),
+) -> EmpresaListResponse:
+    empresa = _emisor_from_settings(settings)
+    return EmpresaListResponse(
+        data=[empresa],
+        meta=Meta(
+            pagination=Pagination(total=1, count=1, per_page=10, current_page=1, total_pages=1)
+        ),
+    )
 
 
 @router.get(
     "/rfc/{rfc}",
     response_model=EmpresaResponse,
     status_code=status.HTTP_200_OK,
-    summary="Get empresa by RFC",
-    description="Retrieves a specific empresa by RFC (e.g., ALO161103C77).",
+    summary="Obtiene empresa por RFC",
+    description="Retorna el emisor si el RFC coincide con el configurado.",
 )
-async def get_empresa_by_rfc(rfc: str) -> EmpresaResponse:
-    """Get empresa by RFC."""
-    try:
-        client = await get_facturify_empresa_client()
-        empresa = await client.get_empresa_by_rfc(rfc)
-        
-        if not empresa:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Empresa with RFC '{rfc}' not found",
-            )
-        
-        return EmpresaResponse(data=empresa)
-    except HTTPException:
-        raise
-    except FacturifyEmpresaError as e:
-        logger.error(f"Failed to get empresa by RFC {rfc}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error getting empresa by RFC {rfc}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
+async def get_empresa_by_rfc(
+    rfc: str,
+    settings: Settings = Depends(get_app_settings),
+) -> EmpresaResponse:
+    empresa = _emisor_from_settings(settings)
+    return EmpresaResponse(data=empresa)

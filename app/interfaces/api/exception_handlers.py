@@ -8,6 +8,8 @@ from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.interfaces.api.cfdi_error_response import pydantic_errors_to_detail
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,8 +49,5 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": exc.errors(),
-            "body": exc.body,
-        },
+        content={"detail": pydantic_errors_to_detail(exc.errors())},
     )

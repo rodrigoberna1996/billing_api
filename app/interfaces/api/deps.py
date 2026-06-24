@@ -1,14 +1,19 @@
 """Dependencias para FastAPI."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from fastapi import Depends
 
-from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory
+from app.application.ports.repositories import UnitOfWork
 from app.core.config import Settings, get_settings
 from app.core.database import get_session_factory
-from app.infrastructure.http.facturify_client import FacturifyClient
-from app.infrastructure.mappers.facturify_payload import FacturifyPayloadBuilder
+from app.infrastructure.http.facturalo_client import FacturaloPlusClient
+from app.infrastructure.http.logistics_client import LogisticsClient
+from app.infrastructure.mappers.facturalo_payload import FacturaloPayloadBuilder
 from app.infrastructure.persistence.unit_of_work import SQLAlchemyUnitOfWork
+
+UnitOfWorkFactory = Callable[[], UnitOfWork]
 
 
 def get_app_settings() -> Settings:
@@ -24,22 +29,35 @@ def get_uow_factory() -> UnitOfWorkFactory:
     return factory
 
 
-def get_facturify_client(settings: Settings = Depends(get_app_settings)) -> FacturifyClient:
-    return FacturifyClient(
-        base_url=settings.facturify_base_url,
-        timeout=settings.facturify_timeout,
-        max_retries=settings.facturify_max_retries,
-        retry_backoff=settings.facturify_retry_backoff,
+def get_facturalo_client(settings: Settings = Depends(get_app_settings)) -> FacturaloPlusClient:
+    return FacturaloPlusClient(
+        base_url=settings.facturalo_base_url,
+        api_key=settings.facturalo_api_key,
+        key_pem=settings.facturalo_key_pem,
+        cer_pem=settings.facturalo_cer_pem,
+        csd_key_b64=settings.facturalo_csd_key_b64,
+        csd_cer_b64=settings.facturalo_csd_cer_b64,
+        csd_password=settings.facturalo_csd_password,
+        emisor_rfc=settings.facturalo_emisor_rfc,
+        pdf_plantilla=settings.facturalo_pdf_plantilla,
+        timeout=settings.facturalo_timeout,
+        max_retries=settings.facturalo_max_retries,
+        retry_backoff=settings.facturalo_retry_backoff,
     )
 
 
-def get_payload_builder(settings: Settings = Depends(get_app_settings)) -> FacturifyPayloadBuilder:
-    return FacturifyPayloadBuilder(account_uuid=settings.facturify_account_uuid)
+def get_facturalo_payload_builder(settings: Settings = Depends(get_app_settings)) -> FacturaloPayloadBuilder:
+    return FacturaloPayloadBuilder(
+        emisor_rfc=settings.facturalo_emisor_rfc,
+        emisor_nombre=settings.facturalo_emisor_nombre,
+        emisor_regimen=settings.facturalo_emisor_regimen,
+        emisor_cp=settings.facturalo_emisor_cp,
+        csd_serial=settings.facturalo_csd_serial,
+    )
 
 
-def get_create_carta_porte_service(
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    facturify_client: FacturifyClient = Depends(get_facturify_client),
-    payload_builder: FacturifyPayloadBuilder = Depends(get_payload_builder),
-) -> CreateCartaPorteService:
-    return CreateCartaPorteService(uow_factory, facturify_client, payload_builder)
+def get_logistics_client(settings: Settings = Depends(get_app_settings)) -> LogisticsClient:
+    return LogisticsClient(
+        base_url=settings.logistics_api_url,
+        api_key=settings.logistics_api_key,
+    )

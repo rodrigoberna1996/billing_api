@@ -7,14 +7,6 @@ from uuid import UUID
 from app.domain.entities import Invoice, Party
 
 
-class CompanyGateway(Protocol):
-    async def get_by_id(self, company_id: UUID) -> Party | None: ...
-    
-    async def get_by_rfc(self, rfc: str) -> Party | None: ...
-    
-    async def create(self, party: Party) -> Party: ...
-
-
 class ClientGateway(Protocol):
     async def get_by_rfc(self, rfc: str) -> Party | None: ...
 
@@ -28,9 +20,12 @@ class InvoiceRepository(Protocol):
 
     async def get_by_id(self, invoice_id: UUID) -> Invoice | None: ...
 
+    async def get_by_cfdi_uuid(self, cfdi_uuid: str) -> Invoice | None: ...
+
+    async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None: ...
+
 
 class UnitOfWork(Protocol):
-    companies: CompanyGateway
     clients: ClientGateway
     invoices: InvoiceRepository
 

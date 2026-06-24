@@ -27,18 +27,36 @@ class Settings(BaseSettings):
     invoice_draft_ttl_seconds: int = Field(default=2592000, alias="INVOICE_DRAFT_TTL_SECONDS")
     invoice_draft_max_bytes: int = Field(default=524288, alias="INVOICE_DRAFT_MAX_BYTES")
 
-    facturify_base_url: str = Field(default="https://api-sandbox.facturify.com", alias="FACTURIFY_BASE_URL")
-    facturify_api_key: str = Field(default="demo-token", alias="FACTURIFY_API_KEY")
-    facturify_api_secret: str = Field(default="demo-secret", alias="FACTURIFY_API_SECRET")
-    facturify_account_uuid: str = Field(
-        default="00000000-0000-0000-0000-000000000000", alias="FACTURIFY_ACCOUNT_UUID"
+    # FacturaloPlus PAC
+    facturalo_base_url: str = Field(default="https://dev.facturaloplus.com", alias="FACTURALO_BASE_URL")
+    facturalo_api_key: str = Field(default="", alias="FACTURALO_API_KEY")
+    facturalo_key_pem: str = Field(default="", alias="FACTURALO_KEY_PEM")
+    facturalo_cer_pem: str = Field(default="", alias="FACTURALO_CER_PEM")
+    facturalo_csd_key_b64: str = Field(default="", alias="FACTURALO_CSD_KEY_B64")
+    facturalo_csd_cer_b64: str = Field(default="", alias="FACTURALO_CSD_CER_B64")
+    facturalo_csd_password: str = Field(default="", alias="FACTURALO_CSD_PASSWORD")
+    facturalo_csd_serial: str = Field(default="", alias="FACTURALO_CSD_SERIAL")
+    facturalo_timeout: int = Field(default=30, alias="FACTURALO_TIMEOUT")
+    facturalo_max_retries: int = Field(default=3, alias="FACTURALO_MAX_RETRIES")
+    facturalo_retry_backoff: float = Field(default=2.0, alias="FACTURALO_RETRY_BACKOFF")
+
+    # Emisor (empresa timbradora) configurado en .env
+    facturalo_emisor_rfc: str = Field(default="", alias="FACTURALO_EMISOR_RFC")
+    facturalo_emisor_nombre: str = Field(default="", alias="FACTURALO_EMISOR_NOMBRE")
+    facturalo_emisor_regimen: str = Field(default="601", alias="FACTURALO_EMISOR_REGIMEN")
+    facturalo_emisor_cp: str = Field(default="", alias="FACTURALO_EMISOR_CP")
+    facturalo_pdf_plantilla: str = Field(
+        default="transporteterrestre31",
+        alias="FACTURALO_PDF_PLANTILLA",
     )
-    facturify_timeout: int = Field(default=30, alias="FACTURIFY_TIMEOUT")
-    facturify_max_retries: int = Field(default=3, alias="FACTURIFY_MAX_RETRIES")
-    facturify_retry_backoff: float = Field(default=2.0, alias="FACTURIFY_RETRY_BACKOFF")
-    facturify_token_refresh_buffer: int = Field(default=60, alias="FACTURIFY_TOKEN_REFRESH_BUFFER")
+
+    # Integración con adrh_logistics (callback event-driven post-timbrado)
+    logistics_api_url: str = Field(default="", alias="LOGISTICS_API_URL")
+    logistics_api_key: str = Field(default="", alias="LOGISTICS_API_KEY")
 
     internal_api_key: str | None = Field(default=None, alias="INTERNAL_API_KEY")
+
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     cors_allowed_origins: str = Field(
         default="",
@@ -55,5 +73,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings(**overrides: Any) -> Settings:
     """Permite cachear la configuracion y facilitar su sobreescritura en tests."""
-
     return Settings(**overrides)

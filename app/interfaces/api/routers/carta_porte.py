@@ -1,17 +1,56 @@
+"""Endpoints CFDI Carta Porte — usa FacturaloPlus como PAC."""
+from __future__ import annotations
+
+import base64
+import io
+import json
 import logging
+import zipfile
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 
-from app.application.dtos import (
-    CartaPorteRequest,
-    CartaPorteResponse,
-    FacturifyCartaPorteRequest,
-    FormTemplateResponse,
-)
-from app.application.services.create_carta_porte import CreateCartaPorteService, UnitOfWorkFactory
+from app.application.dtos import CartaPorteResponse, FormTemplateResponse
+from app.application.dtos.facturify_format import FacturifyCartaPorteRequest
+from app.application.services.carta_porte_validation import CartaPorteValidationError
 from app.core import exceptions
-from app.interfaces.api.deps import get_create_carta_porte_service, get_uow_factory
+from app.core.config import Settings
+from app.domain.entities import (
+    Address,
+    GoodsItem,
+    Invoice,
+    InvoiceItem,
+    Money,
+    Party,
+    Shipment,
+    ShipmentLocation,
+    TransportFigure,
+    Vehicle,
+)
+from app.domain.enums import (
+    ComplementType,
+    InvoiceStatus,
+    InvoiceType,
+    ShipmentLocationType,
+    TransportMode,
+)
+from app.infrastructure.http.facturalo_client import FacturaloPlusClient
+from app.infrastructure.http.logistics_client import LogisticsClient
+from app.infrastructure.mappers.facturalo_payload import FacturaloPayloadBuilder
+from app.interfaces.api.cfdi_error_response import (
+    external_service_error_to_detail,
+    validation_issues_to_detail,
+)
+from app.interfaces.api.deps import (
+    UnitOfWorkFactory,
+    get_app_settings,
+    get_facturalo_client,
+    get_facturalo_payload_builder,
+    get_logistics_client,
+    get_uow_factory,
+)
 from app.interfaces.api.limiter import limiter
 
 logger = logging.getLogger(__name__)
@@ -19,87 +58,163 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/cfdi", tags=["cfdi"])
 
 
-@router.post("/carta-porte", response_model=CartaPorteResponse, status_code=status.HTTP_201_CREATED)
+def _extract_data_block(response: dict | None) -> dict:
+    """Extrae el bloque `data` del payload de FacturaloPlus."""
+    if not response:
+        return {}
+    data = response.get("data", {})
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except Exception:
+            return {}
+    return data if isinstance(data, dict) else {}
+
+
+# ---------------------------------------------------------------------------
+# Background task — llama a FacturaloPlus y persiste el resultado
+# ---------------------------------------------------------------------------
+
+async def _timbrado_background(
+    invoice_id: UUID,
+    sat_payload: dict,
+    trip_id: int | None,
+    serie_hint: str | None,
+    folio_hint: str | None,
+    uow_factory: UnitOfWorkFactory,
+    facturalo_client: FacturaloPlusClient,
+    logistics_client: LogisticsClient,
+) -> None:
+    """Ejecuta el timbrado con FacturaloPlus y actualiza la factura en la BD.
+
+    Se corre como BackgroundTask para que el endpoint responda de forma
+    inmediata con status='pending' sin bloquear al usuario.
+    """
+    logger.info("Background timbrado iniciado para invoice_id=%s", invoice_id)
+
+    # --- 1. Verificar que la factura exista (transacción breve) ---
+    async with uow_factory() as uow:
+        invoice = await uow.invoices.get_by_id(invoice_id)
+
+    if invoice is None:
+        logger.error("Background timbrado: factura %s no encontrada en la BD", invoice_id)
+        return
+
+    # --- 2. Llamar a FacturaloPlus (fuera de la transacción para no mantener el pool ocupado) ---
+    try:
+        facturalo_response = await facturalo_client.create_carta_porte(sat_payload)
+    except exceptions.ExternalServiceError as error:
+        logger.error("Background timbrado error FacturaloPlus invoice=%s: %s", invoice_id, str(error))
+        invoice.mark_failed()
+        invoice.pac_response = {"error": str(error), "code": getattr(error, "code", "external_error")}
+        async with uow_factory() as uow:
+            await uow.invoices.update(invoice)
+        return
+
+    # --- 3. Procesar respuesta y persistir resultado (transacción breve) ---
+    data = _extract_data_block(facturalo_response)
+    cfdi_uuid: str | None = data.get("UUID")
+    serie = data.get("Serie") or serie_hint
+    folio_str = data.get("Folio") or folio_hint
+    folio = int(folio_str) if folio_str and str(folio_str).isdigit() else None
+
+    if cfdi_uuid:
+        data.setdefault("cfdi_uuid", cfdi_uuid)
+        if serie:
+            data.setdefault("serie", serie)
+        if folio is not None:
+            data.setdefault("folio", folio)
+        facturalo_response["data"] = data
+
+        pdf_b64: str | None = data.get("PDF")
+        xml_text: str | None = data.get("XML")
+
+        invoice.mark_issued(
+            uuid=cfdi_uuid,
+            payload=facturalo_response,
+            serie=serie,
+            folio=folio,
+            provider="facturalo",
+            xml=xml_text,
+            pdf_b64=pdf_b64,
+        )
+        invoice.form_snapshot = sat_payload
+    else:
+        logger.warning("Background timbrado: FacturaloPlus no devolvió UUID para invoice=%s", invoice_id)
+        invoice.mark_failed()
+        invoice.pac_response = facturalo_response
+
+    async with uow_factory() as uow:
+        await uow.invoices.update(invoice)
+
+    logger.info("Background timbrado completado invoice=%s status=%s uuid=%s", invoice_id, invoice.status, cfdi_uuid)
+
+    # Notificar a logistics (fire-and-forget, fuera de la transacción)
+    if cfdi_uuid and trip_id:
+        ccp = f"{serie} {folio}" if serie and folio else None
+        try:
+            await logistics_client.notify_cfdi_issued(trip_id=trip_id, cfdi_uuid=cfdi_uuid, ccp=ccp)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Background timbrado: fallo al notificar logistics trip=%s: %s", trip_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/cfdi/carta-porte/facturify
+# ---------------------------------------------------------------------------
+
+@router.post("/carta-porte/facturify", response_model=CartaPorteResponse, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("20/minute")
 async def create_carta_porte_endpoint(
     request: Request,
-    payload: CartaPorteRequest = Body(...),
-    service: CreateCartaPorteService = Depends(get_create_carta_porte_service),
-) -> CartaPorteResponse:
-    logger.info("Creando carta porte para empresa %s", getattr(payload, "empresa_uuid", "N/A"))
-    try:
-        invoice = await service.execute(payload)
-    except exceptions.ExternalServiceError as error:
-        logger.error("Error de Facturify/SAT: %s", str(error))
-        error_detail = {
-            "message": str(error),
-            "type": "external_service_error",
-            "hint": "Verifica los datos fiscales del receptor y emisor"
-        }
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
-    except exceptions.BillingError as error:
-        logger.error("Error al procesar carta porte: %s", str(error))
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-
-    logger.info("Carta porte creada: invoice_id=%s uuid=%s", invoice.id, invoice.facturify_uuid)
-
-    return CartaPorteResponse(
-        invoice_id=invoice.id,
-        status=invoice.status.value,
-        facturify_uuid=invoice.facturify_uuid,
-        facturify_status=invoice.status.value,
-        facturify_response=invoice.facturify_response,
-    )
-
-
-@router.post("/carta-porte/facturify", response_model=CartaPorteResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("20/minute")
-async def create_carta_porte_facturify_format(
-    request: Request,
+    background_tasks: BackgroundTasks,
     payload: FacturifyCartaPorteRequest = Body(...),
+    settings: Settings = Depends(get_app_settings),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    facturalo_client: FacturaloPlusClient = Depends(get_facturalo_client),
+    payload_builder: FacturaloPayloadBuilder = Depends(get_facturalo_payload_builder),
+    logistics_client: LogisticsClient = Depends(get_logistics_client),
 ) -> CartaPorteResponse:
-    from datetime import datetime
+    """Acepta la solicitud de timbrado y responde de inmediato con status='pending'.
 
-    from app.domain.entities import (
-        Address,
-        GoodsItem,
-        Invoice,
-        InvoiceItem,
-        Money,
-        Party,
-        Shipment,
-        ShipmentLocation,
-        TransportFigure,
-        Vehicle,
-    )
-    from app.domain.enums import (
-        ComplementType,
-        InvoiceStatus,
-        InvoiceType,
-        ShipmentLocationType,
-        TransportMode,
-    )
-    from app.infrastructure.http.facturify_client import FacturifyClient
-    from app.interfaces.api.deps import get_app_settings
-    
-    logger.info("Procesando carta porte (formato Facturify directo)")
+    El timbrado real se ejecuta en un background task para evitar timeouts
+    en payloads grandes (600+ mercancías) donde FacturaloPlus puede tardar
+    más de 3 minutos generando el PDF.
 
-    facturify_payload = payload.model_dump(mode="json", exclude_none=True)
-    
-    # Obtener o crear el receptor (cliente) basado en el UUID de Facturify
+    El cliente debe hacer polling a GET /v1/cfdi/{invoice_id} hasta que
+    status sea 'issued' o 'failed'.
+    """
+    from app.application.services.carta_porte_validation import assert_valid_carta_porte_request
+
+    try:
+        assert_valid_carta_porte_request(
+            payload,
+            emisor_rfc_config=settings.facturalo_emisor_rfc,
+            emisor_cp_config=settings.facturalo_emisor_cp,
+        )
+    except CartaPorteValidationError as error:
+        logger.warning("Validación carta porte fallida: %d errores", len(error.issues))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=validation_issues_to_detail(error.issues),
+        ) from error
+
+    factura = payload.factura
+    carta_porte = factura.Complemento.CartaPorte
+
+    # 1. Construir el payload SAT antes de abrir la transacción (operación pura, sin IO)
+    sat_payload = payload_builder.build(payload)
+
+    # 2. Upsert receptor, persistir factura en status=pending
     async with uow_factory() as uow:
-        receptor_rfc = payload.receptor.rfc or "XAXX010101000"
+        receptor_rfc = (payload.receptor.rfc or "XAXX010101000").strip()
         recipient = await uow.clients.get_by_rfc(receptor_rfc)
-        
+
         if recipient is None:
-            # El régimen fiscal debe ser código de 3 dígitos, no texto completo
-            tax_regime = "616"  # Default: Sin obligaciones fiscales
+            tax_regime = "616"
             if payload.receptor.regimen:
-                # Si viene un código de 3 dígitos, usarlo; si no, usar default
                 if len(payload.receptor.regimen) <= 3 and payload.receptor.regimen.isdigit():
                     tax_regime = payload.receptor.regimen
-            
+
             recipient = Party(
                 legal_name=payload.receptor.razon_social or "Cliente Genérico",
                 rfc=receptor_rfc,
@@ -116,168 +231,140 @@ async def create_carta_porte_facturify_format(
                 ),
             )
             recipient = await uow.clients.upsert(recipient)
-    
-    # Enviar directamente a Facturify sin transformaciones
-    try:
-        settings = get_app_settings()
-        facturify_client = FacturifyClient(
-            base_url=settings.facturify_base_url,
-            timeout=settings.facturify_timeout,
-            max_retries=settings.facturify_max_retries,
-            retry_backoff=settings.facturify_retry_backoff,
-        )
-        
-        facturify_response = await facturify_client.create_carta_porte(facturify_payload)
-    except exceptions.ExternalServiceError as error:
-        error_detail = {
-            "message": str(error),
-            "type": "external_service_error",
-            "hint": "Verifica los datos fiscales del receptor y emisor en el SAT"
-        }
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
-    # Extraer datos de la respuesta de Facturify
-    data = facturify_response.get("data", {})
-    cfdi_uuid = data.get("cfdi_uuid") or facturify_response.get("cfdi_uuid")
-    serie = data.get("serie")
-    folio = data.get("folio")
-    factura_id = data.get("factura_id")
-    provider = data.get("provider")
-    
-    # Construir entidades del dominio a partir del payload de Facturify
-    factura = payload.factura
-    carta_porte = factura.Complemento.CartaPorte
-    
-    # Items de la factura
-    items = [
-        InvoiceItem(
-            product_key=concepto.clave_producto_servicio,
-            description=concepto.descripcion,
-            quantity=concepto.cantidad,
-            unit_key=concepto.clave_unidad_de_medida,
-            unit_price=concepto.valor_unitario,
-            taxes=None,
-        )
-        for concepto in factura.conceptos
-    ]
-    
-    # Ubicaciones del envío
-    locations = [
-        ShipmentLocation(
-            type=ShipmentLocationType.origin if ubicacion.TipoUbicacion == "Origen" else ShipmentLocationType.destination,
-            datetime=datetime.fromisoformat(ubicacion.FechaHoraSalidaLlegada.replace("T", " ")),
-            street=ubicacion.Domicilio.Calle,
-            exterior_number=ubicacion.Domicilio.NumeroExterior or "SN",
-            neighborhood=ubicacion.Domicilio.Colonia or "Sin colonia",
-            city=ubicacion.Domicilio.Municipio or "Sin municipio",
-            state=ubicacion.Domicilio.Estado,
-            country=ubicacion.Domicilio.Pais,
-            zip_code=ubicacion.Domicilio.CodigoPostal,
-            latitude=None,
-            longitude=None,
-            reference=None,
-        )
-        for ubicacion in carta_porte.Ubicaciones.Ubicacion
-    ]
-    
-    # Mercancías
-    goods = [
-        GoodsItem(
-            description=mercancia.Descripcion,
-            product_key=mercancia.BienesTransp,
-            quantity=mercancia.Cantidad,
-            unit_key=mercancia.ClaveUnidad,
-            weight_kg=mercancia.PesoEnKg,
-            value=0.0,
-            dangerous_material=mercancia.MaterialPeligroso == "Si" if mercancia.MaterialPeligroso else False,
-            dangerous_key=mercancia.CveMaterialPeligroso,
-        )
-        for mercancia in carta_porte.Mercancias.Mercancia
-    ]
-    
-    # Figuras de transporte
-    figures = [
-        TransportFigure(
-            type=figura.TipoFigura,
-            rfc=figura.RFCFigura,
-            name=figura.NombreFigura,
-            license=figura.NumLicencia,
-            role_description=None,
-        )
-        for figura in carta_porte.FiguraTransporte.TiposFigura
-    ]
-    
-    # Vehículo
-    autotransporte = carta_porte.Mercancias.Autotransporte
-    vehicle = Vehicle(
-        configuration=autotransporte.IdentificacionVehicular.ConfigVehicular,
-        plate=autotransporte.IdentificacionVehicular.PlacaVM,
-        federal_permit=autotransporte.NumPermisoSCT,
-        insurance_company=autotransporte.Seguros.AseguraRespCivil,
-        insurance_policy=autotransporte.Seguros.PolizaRespCivil,
-    )
-    
-    # Envío completo
-    shipment = Shipment(
-        transport_mode=TransportMode.autotransporte_federal,
-        permit_type=autotransporte.PermSCT,
-        permit_number=autotransporte.NumPermisoSCT,
-        total_distance_km=carta_porte.TotalDistRec,
-        total_weight_kg=carta_porte.Mercancias.PesoBrutoTotal,
-        vehicle=vehicle,
-        locations=locations,
-        goods=goods,
-        figures=figures,
-    )
-    
-    # Crear la factura
-    invoice = Invoice(
-        issuer_id=None,
-        recipient=recipient,
-        type=InvoiceType.ingreso if factura.tipo == "ingreso" else InvoiceType.traslado,
-        complement=ComplementType.carta_porte,
-        currency=factura.moneda,
-        subtotal=Money(amount=factura.subtotal, currency=factura.moneda),
-        total=Money(amount=factura.total, currency=factura.moneda),
-        cfdi_use=factura.uso_cfdi or "S01",
-        payment_form=factura.forma_de_pago,
-        payment_method=factura.metodo_de_pago,
-        expedition_place=factura.lugar_expedicion or "00000",
-        items=items,
-        shipment=shipment,
-    )
-    
-    # Guardar la factura en la base de datos
-    async with uow_factory() as uow:
-        invoice = await uow.invoices.create(invoice)
-        
-        if cfdi_uuid:
-            invoice.mark_issued(
-                uuid=cfdi_uuid,
-                payload=None,
-                serie=serie,
-                folio=folio,
-                factura_id=factura_id,
-                provider=provider,
+        items = [
+            InvoiceItem(
+                product_key=c.clave_producto_servicio,
+                description=c.descripcion,
+                quantity=c.cantidad,
+                unit_key=c.clave_unidad_de_medida,
+                unit_price=c.valor_unitario,
+                taxes=None,
             )
-            invoice.form_snapshot = facturify_payload
-        else:
-            invoice.mark_failed()
-        
-        await uow.invoices.update(invoice)
-    
-    status_value = InvoiceStatus.issued.value if cfdi_uuid else InvoiceStatus.failed.value
-    
+            for c in factura.conceptos
+        ]
+
+        locations = [
+            ShipmentLocation(
+                type=(
+                    ShipmentLocationType.origin
+                    if u.TipoUbicacion == "Origen"
+                    else ShipmentLocationType.destination
+                ),
+                datetime=datetime.fromisoformat(u.FechaHoraSalidaLlegada.replace(" ", "T")),
+                street=u.Domicilio.Calle,
+                exterior_number=u.Domicilio.NumeroExterior or "SN",
+                neighborhood=u.Domicilio.Colonia or "Sin colonia",
+                city=u.Domicilio.Municipio or "Sin municipio",
+                state=u.Domicilio.Estado,
+                country=u.Domicilio.Pais,
+                zip_code=u.Domicilio.CodigoPostal,
+                latitude=None,
+                longitude=None,
+                reference=u.Domicilio.Referencia,
+            )
+            for u in carta_porte.Ubicaciones.Ubicacion
+        ]
+
+        goods = [
+            GoodsItem(
+                description=m.Descripcion,
+                product_key=m.BienesTransp,
+                quantity=m.Cantidad,
+                unit_key=m.ClaveUnidad,
+                weight_kg=m.PesoEnKg,
+                value=0.0,
+                dangerous_material=bool(
+                    m.MaterialPeligroso and m.MaterialPeligroso.strip().lower() in ("sí", "si", "s")
+                ),
+                dangerous_key=m.CveMaterialPeligroso,
+            )
+            for m in carta_porte.Mercancias.Mercancia
+        ]
+
+        figures = [
+            TransportFigure(
+                type=f.TipoFigura,
+                rfc=f.RFCFigura,
+                name=f.NombreFigura,
+                license=f.NumLicencia,
+                role_description=None,
+            )
+            for f in carta_porte.FiguraTransporte.TiposFigura
+        ]
+
+        auto = carta_porte.Mercancias.Autotransporte
+        vehicle = Vehicle(
+            configuration=auto.IdentificacionVehicular.ConfigVehicular,
+            plate=auto.IdentificacionVehicular.PlacaVM,
+            federal_permit=auto.NumPermisoSCT,
+            insurance_company=auto.Seguros.AseguraRespCivil,
+            insurance_policy=auto.Seguros.PolizaRespCivil,
+        )
+
+        shipment = Shipment(
+            transport_mode=TransportMode.autotransporte_federal,
+            permit_type=auto.PermSCT,
+            permit_number=auto.NumPermisoSCT,
+            total_distance_km=carta_porte.TotalDistRec,
+            total_weight_kg=carta_porte.Mercancias.PesoBrutoTotal,
+            vehicle=vehicle,
+            locations=locations,
+            goods=goods,
+            figures=figures,
+        )
+
+        invoice = Invoice(
+            recipient=recipient,
+            type=InvoiceType.ingreso if factura.tipo == "ingreso" else InvoiceType.traslado,
+            complement=ComplementType.carta_porte,
+            currency=factura.moneda,
+            subtotal=Money(amount=factura.subtotal, currency=factura.moneda),
+            total=Money(amount=factura.total, currency=factura.moneda),
+            cfdi_use=factura.uso_cfdi or "S01",
+            payment_form=factura.forma_de_pago,
+            payment_method=factura.metodo_de_pago,
+            expedition_place=factura.lugar_expedicion or payload_builder._emisor_cp or "00000",
+            items=items,
+            shipment=shipment,
+            trip_id=payload.trip_id,
+            status=InvoiceStatus.pending,
+        )
+
+        invoice = await uow.invoices.create(invoice)
+
+    # 3. Despachar timbrado como background task (respuesta inmediata al cliente)
+    background_tasks.add_task(
+        _timbrado_background,
+        invoice_id=invoice.id,
+        sat_payload=sat_payload,
+        trip_id=payload.trip_id,
+        serie_hint=factura.serie,
+        folio_hint=factura.folio,
+        uow_factory=uow_factory,
+        facturalo_client=facturalo_client,
+        logistics_client=logistics_client,
+    )
+
+    logger.info(
+        "Carta Porte aceptada, timbrado en background. invoice_id=%s trip_id=%s mercancias=%d",
+        invoice.id,
+        payload.trip_id,
+        len(carta_porte.Mercancias.Mercancia),
+    )
+
     return CartaPorteResponse(
         invoice_id=invoice.id,
-        status=status_value,
-        facturify_uuid=cfdi_uuid,
-        facturify_status=status_value,
-        facturify_response=facturify_response,
+        status=InvoiceStatus.pending.value,
+        cfdi_uuid=None,
+        pac_response=None,
+        trip_id=payload.trip_id,
     )
 
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/{invoice_id}
+# ---------------------------------------------------------------------------
 
 @router.get("/{invoice_id}", response_model=CartaPorteResponse)
 async def get_invoice_endpoint(
@@ -292,11 +379,15 @@ async def get_invoice_endpoint(
     return CartaPorteResponse(
         invoice_id=invoice.id,
         status=invoice.status.value,
-        facturify_uuid=invoice.facturify_uuid,
-        facturify_status=invoice.status.value,
-        facturify_response=invoice.facturify_response,
+        cfdi_uuid=invoice.cfdi_uuid,
+        pac_response=invoice.pac_response,
+        trip_id=invoice.trip_id,
     )
 
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/{invoice_id}/form-template
+# ---------------------------------------------------------------------------
 
 @router.get("/{invoice_id}/form-template", response_model=FormTemplateResponse)
 @limiter.limit("60/minute")
@@ -305,8 +396,6 @@ async def get_form_template_endpoint(
     invoice_id: UUID,
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
 ) -> FormTemplateResponse:
-    from app.domain.enums import InvoiceStatus
-
     async with uow_factory() as uow:
         invoice = await uow.invoices.get_by_id(invoice_id)
     if (
@@ -316,88 +405,153 @@ async def get_form_template_endpoint(
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Plantilla no disponible (solo facturas timbradas con snapshot guardado).",
+            detail="Plantilla no disponible (solo facturas timbradas con snapshot).",
         )
     return FormTemplateResponse(invoice_id=invoice.id, payload=invoice.form_snapshot)
 
 
+# ---------------------------------------------------------------------------
+# PUT /v1/cfdi/{cfdi_uuid}/cancel
+# ---------------------------------------------------------------------------
+
 @router.put("/{cfdi_uuid}/cancel")
 async def cancel_invoice_endpoint(
     cfdi_uuid: str,
+    motivo: str = Query(default="02", description="Motivo de cancelación SAT (01-04)"),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    facturalo_client: FacturaloPlusClient = Depends(get_facturalo_client),
 ) -> dict:
-    """Cancela una factura en Facturify usando su UUID de CFDI."""
-    from app.infrastructure.http.facturify_client import FacturifyClient
-    from app.interfaces.api.deps import get_app_settings
-    
-    settings = get_app_settings()
-    facturify_client = FacturifyClient(
-        base_url=settings.facturify_base_url,
-        timeout=settings.facturify_timeout,
-        max_retries=settings.facturify_max_retries,
-        retry_backoff=settings.facturify_retry_backoff,
-    )
-    
+    """Cancela un CFDI en el SAT usando FacturaloPlus."""
+    async with uow_factory() as uow:
+        invoice = await uow.invoices.get_by_cfdi_uuid(cfdi_uuid)
+
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Factura no encontrada para el UUID proporcionado",
+        )
+
+    rfc_receptor = invoice.recipient.rfc if invoice.recipient else ""
+    total = str(invoice.total.amount)
+
     try:
-        response = await facturify_client.cancel_invoice(cfdi_uuid)
+        response = await facturalo_client.cancel_invoice(
+            cfdi_uuid=cfdi_uuid,
+            rfc_receptor=rfc_receptor,
+            total=total,
+            motivo=motivo,
+        )
         return response
     except exceptions.ExternalServiceError as error:
-        error_detail = {
-            "message": str(error),
-            "type": "external_service_error",
-            "hint": "Verifica que el UUID del CFDI sea válido y que la factura pueda ser cancelada"
-        }
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=external_service_error_to_detail(error),
+        ) from error
 
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/{cfdi_uuid}/pdf
+# ---------------------------------------------------------------------------
 
 @router.get("/{cfdi_uuid}/pdf")
 async def get_invoice_pdf_endpoint(
     cfdi_uuid: str,
-) -> dict:
-    """Obtiene la URL del PDF de una factura."""
-    from app.infrastructure.http.facturify_client import FacturifyClient
-    from app.interfaces.api.deps import get_app_settings
-    
-    settings = get_app_settings()
-    facturify_client = FacturifyClient(
-        base_url=settings.facturify_base_url,
-        timeout=settings.facturify_timeout,
-        max_retries=settings.facturify_max_retries,
-        retry_backoff=settings.facturify_retry_backoff,
-    )
-    
-    try:
-        response = await facturify_client.get_invoice_pdf(cfdi_uuid)
-        return response
-    except exceptions.ExternalServiceError as error:
-        error_detail = {
-            "message": str(error),
-            "type": "external_service_error",
-        }
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
+    download: bool = Query(default=False, description="Si true, fuerza descarga en lugar de vista previa"),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> Response:
+    """Retorna el PDF del CFDI como binario listo para abrir en el navegador."""
+    async with uow_factory() as uow:
+        doc = await uow.invoices.get_pac_response_by_cfdi_uuid(cfdi_uuid)
 
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Factura no encontrada")
+
+    # Prioridad: columna dedicada cfdi_pdf_b64 → fallback a pac_response.data.PDF
+    pdf_b64 = doc.get("cfdi_pdf_b64") or _extract_data_block(doc.get("pac_response")).get("PDF")
+
+    if pdf_b64:
+        disposition = "attachment" if download else "inline"
+        return Response(
+            content=base64.b64decode(pdf_b64),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'{disposition}; filename="factura_{cfdi_uuid}.pdf"'},
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={
+            "message": "PDF no disponible para esta factura.",
+            "type": "not_found",
+            "code": "pdf_not_found",
+            "hint": "Verifique que FACTURALO_PDF_PLANTILLA esté configurada.",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/{cfdi_uuid}/xml
+# ---------------------------------------------------------------------------
 
 @router.get("/{cfdi_uuid}/xml")
 async def get_invoice_xml_endpoint(
     cfdi_uuid: str,
-) -> dict:
-    """Obtiene la URL del XML de una factura."""
-    from app.infrastructure.http.facturify_client import FacturifyClient
-    from app.interfaces.api.deps import get_app_settings
-    
-    settings = get_app_settings()
-    facturify_client = FacturifyClient(
-        base_url=settings.facturify_base_url,
-        timeout=settings.facturify_timeout,
-        max_retries=settings.facturify_max_retries,
-        retry_backoff=settings.facturify_retry_backoff,
+    download: bool = Query(default=False, description="Si true, fuerza descarga en lugar de vista previa"),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> Response:
+    """Retorna el XML del CFDI como archivo."""
+    async with uow_factory() as uow:
+        doc = await uow.invoices.get_pac_response_by_cfdi_uuid(cfdi_uuid)
+
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Factura no encontrada")
+
+    xml_content = doc.get("cfdi_xml") or _extract_data_block(doc.get("pac_response")).get("XML")
+
+    if not xml_content:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="XML no disponible para esta factura")
+
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=xml_content.encode("utf-8"),
+        media_type="application/xml",
+        headers={"Content-Disposition": f'{disposition}; filename="factura_{cfdi_uuid}.xml"'},
     )
-    
-    try:
-        response = await facturify_client.get_invoice_xml(cfdi_uuid)
-        return response
-    except exceptions.ExternalServiceError as error:
-        error_detail = {
-            "message": str(error),
-            "type": "external_service_error",
-        }
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from error
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/{cfdi_uuid}/zip
+# ---------------------------------------------------------------------------
+
+@router.get("/{cfdi_uuid}/zip")
+async def download_invoice_zip_endpoint(
+    cfdi_uuid: str,
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> Response:
+    """Descarga un ZIP con el XML y (si está disponible) el PDF del CFDI timbrado."""
+    async with uow_factory() as uow:
+        doc = await uow.invoices.get_pac_response_by_cfdi_uuid(cfdi_uuid)
+
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Factura no encontrada")
+
+    xml_content = doc.get("cfdi_xml") or _extract_data_block(doc.get("pac_response")).get("XML")
+    pdf_b64 = doc.get("cfdi_pdf_b64") or _extract_data_block(doc.get("pac_response")).get("PDF")
+
+    if not xml_content and not pdf_b64:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No hay documentos disponibles para esta factura.",
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        if xml_content:
+            zf.writestr(f"{cfdi_uuid}.xml", xml_content.encode("utf-8"))
+        if pdf_b64:
+            zf.writestr(f"{cfdi_uuid}.pdf", base64.b64decode(pdf_b64))
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="factura_{cfdi_uuid}.zip"'},
+    )

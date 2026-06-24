@@ -13,6 +13,17 @@ class EntityNotFound(BillingError):
 class ExternalServiceError(BillingError):
     """Errores provenientes de integraciones externas."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        source: str = "facturaloplus",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.source = source
+
 
 class ValidationError(BillingError):
     """Errores de negocio que deben ser devueltos al cliente."""

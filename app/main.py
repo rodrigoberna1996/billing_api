@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -15,11 +15,6 @@ from app.core.config import Settings, get_settings
 from app.core.database import dispose_engine, get_engine
 from app.core.logging import configure_logging
 from app.core.redis import close_redis, get_redis
-from app.infrastructure.http.facturify_auth_client import (
-    close_facturify_auth_client,
-    get_facturify_auth_client,
-)
-from app.infrastructure.http.facturify_empresa_client import close_facturify_empresa_client
 from app.interfaces.api.exception_handlers import validation_exception_handler
 from app.interfaces.api.internal_auth import require_internal_key
 from app.interfaces.api.limiter import limiter
@@ -27,9 +22,9 @@ from app.interfaces.api.routers import (
     carta_porte,
     clients,
     drafts,
-    facturify_auth,
     facturify_empresa,
     health,
+    mercancias,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,27 +50,22 @@ def _cors_origins(settings: Settings) -> list[str]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    configure_logging()
     settings = get_settings()
-    # Validacion de credenciales criticas antes de arrancar en produccion
+    configure_logging(settings.log_level)
     if settings.env == "production":
-        if settings.facturify_api_key == "demo-token":
+        if not settings.facturalo_api_key:
             raise RuntimeError(
-                "FACTURIFY_API_KEY no esta configurada para produccion. "
+                "FACTURALO_API_KEY no está configurada para producción. "
                 "Revisa las variables de entorno."
             )
-        if settings.facturify_account_uuid == "00000000-0000-0000-0000-000000000000":
+        if not settings.facturalo_emisor_rfc:
             raise RuntimeError(
-                "FACTURIFY_ACCOUNT_UUID no esta configurado para produccion. "
+                "FACTURALO_EMISOR_RFC no está configurado para producción. "
                 "Revisa las variables de entorno."
             )
     get_engine()
     await get_redis()
-    auth_client = await get_facturify_auth_client()
-    await auth_client.start_background_refresh()
     yield
-    await close_facturify_empresa_client()
-    await close_facturify_auth_client()
     await close_redis()
     await dispose_engine()
 
@@ -84,9 +74,8 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="Billing API",
-        description="Servicio de timbrado CFDI con complemento Carta Porte usando Facturify",
-        version="0.1.0",
-        default_response_class=ORJSONResponse,
+        description="Servicio de timbrado CFDI con complemento Carta Porte usando FacturaloPlus",
+        version="1.0.0",
         lifespan=lifespan,
     )
 
@@ -111,16 +100,14 @@ def create_app() -> FastAPI:
             status_code=500, content={"detail": "Error interno del servidor."}
         )
 
-    # El router de health no requiere autenticacion para monitoreo de infra
     app.include_router(health.router)
 
-    # Todos los demas routers requieren X-Internal-Key
     internal_dep = [Depends(require_internal_key)]
-    app.include_router(facturify_auth.router, dependencies=internal_dep)
     app.include_router(facturify_empresa.router, dependencies=internal_dep)
     app.include_router(carta_porte.router, dependencies=internal_dep)
     app.include_router(clients.router, dependencies=internal_dep)
     app.include_router(drafts.router, dependencies=internal_dep)
+    app.include_router(mercancias.router, dependencies=internal_dep)
     return app
 
 

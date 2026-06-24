@@ -43,7 +43,6 @@ class Party:
     tax_regime: str
     email: str | None
     address: Address
-    external_uuid: str | None = None
     id: UUID | None = None
 
 
@@ -122,7 +121,6 @@ def _utc_now() -> datetime:
 
 @dataclass(slots=True)
 class Invoice:
-    issuer_id: UUID | None
     recipient: Party
     type: InvoiceType
     complement: ComplementType
@@ -136,19 +134,18 @@ class Invoice:
     items: Sequence[InvoiceItem] = field(default_factory=list)
     shipment: Shipment | None = None
     status: InvoiceStatus = InvoiceStatus.draft
-    facturify_uuid: str | None = None
-    facturify_response: dict | None = None
+    cfdi_uuid: str | None = None
+    pac_response: dict | None = None
+    cfdi_xml: str | None = None
+    cfdi_pdf_b64: str | None = None
+    trip_id: int | None = None
     serie: str | None = None
     folio: int | None = None
-    factura_id: str | None = None
     provider: str | None = None
     form_snapshot: dict | None = None
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     id: UUID = field(default_factory=uuid4)
-
-    def mark_pending(self) -> None:
-        self.status = InvoiceStatus.pending
 
     def mark_issued(
         self,
@@ -156,15 +153,17 @@ class Invoice:
         payload: dict,
         serie: str | None = None,
         folio: int | None = None,
-        factura_id: str | None = None,
         provider: str | None = None,
+        xml: str | None = None,
+        pdf_b64: str | None = None,
     ) -> None:
         self.status = InvoiceStatus.issued
-        self.facturify_uuid = uuid
-        self.facturify_response = payload
+        self.cfdi_uuid = uuid
+        self.pac_response = payload
+        self.cfdi_xml = xml
+        self.cfdi_pdf_b64 = pdf_b64
         self.serie = serie
         self.folio = folio
-        self.factura_id = factura_id
         self.provider = provider
         self.updated_at = _utc_now()
 

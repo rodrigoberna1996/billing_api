@@ -4,20 +4,12 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-
-
-class EmisorDTO(BaseModel):
-    """Emisor puede venir solo con UUID o con datos completos."""
-    uuid: UUID
-    razon_social: str | None = None
-    rfc: str | None = None
-    cp: str | None = None
+from pydantic import BaseModel, Field, field_validator
 
 
 class ReceptorDTO(BaseModel):
-    """Receptor puede venir solo con UUID o con datos completos."""
-    uuid: UUID
+    """Datos del receptor de la factura."""
+    uuid: UUID | None = None
     rfc: str | None = None
     razon_social: str | None = None
     cp: str | None = None
@@ -27,15 +19,19 @@ class ReceptorDTO(BaseModel):
 
 
 class DomicilioDTO(BaseModel):
-    """Domicilio en formato Facturify."""
+    """Domicilio en formato SAT."""
     Calle: str
     CodigoPostal: str
     Estado: str
     Pais: str = "MEX"
     Municipio: str | None = None
     Localidad: str | None = None
-    NumeroExterior: str | None = None
+    NumeroExterior: str | None = Field(default=None, alias="NumExterior")
+    NumeroInterior: str | None = None
     Colonia: str | None = None
+    Referencia: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class UbicacionDTO(BaseModel):
@@ -43,6 +39,7 @@ class UbicacionDTO(BaseModel):
     TipoUbicacion: Literal["Origen", "Destino"]
     IDUbicacion: str
     RFCRemitenteDestinatario: str
+    NombreRemitenteDestinatario: str | None = None
     FechaHoraSalidaLlegada: str
     Domicilio: DomicilioDTO
     DistanciaRecorrida: float | None = None
@@ -51,6 +48,13 @@ class UbicacionDTO(BaseModel):
 class UbicacionesDTO(BaseModel):
     """Contenedor de ubicaciones."""
     Ubicacion: list[UbicacionDTO]
+
+
+class CantidadTransportaDTO(BaseModel):
+    """Cantidad transportada entre origen y destino específicos."""
+    Cantidad: float
+    IDOrigen: str
+    IDDestino: str
 
 
 class MercanciaDTO(BaseModel):
@@ -62,6 +66,17 @@ class MercanciaDTO(BaseModel):
     PesoEnKg: float
     MaterialPeligroso: str | None = None
     CveMaterialPeligroso: str | None = None
+    Embalaje: str | None = None
+    DescripEmbalaje: str | None = None
+    CantidadTransporta: list[CantidadTransportaDTO] | None = None
+
+    @field_validator("MaterialPeligroso", "CveMaterialPeligroso", "Embalaje", "DescripEmbalaje", mode="before")
+    @classmethod
+    def blank_or_no_to_none(cls, v: object) -> object:
+        """Convierte 'No', vacío o whitespace a None para que exclude_none los omita del XML."""
+        if isinstance(v, str) and (not v.strip() or v.strip().lower() == "no"):
+            return None
+        return v
 
 
 class IdentificacionVehicularDTO(BaseModel):
@@ -152,9 +167,24 @@ class TrasladosDTO(BaseModel):
     traslado: list[TrasladoDTO]
 
 
+class RetencionDTO(BaseModel):
+    """Retención de impuesto."""
+    base: float
+    impuesto: str
+    tipoFactor: str
+    tasaOCuota: float
+    importe: float
+
+
+class RetencionesDTOWrapper(BaseModel):
+    """Retenciones de impuestos."""
+    retencion: list[RetencionDTO]
+
+
 class ImpuestosConceptoDTO(BaseModel):
     """Impuestos de un concepto."""
     traslados: TrasladosDTO | None = None
+    retenciones: RetencionesDTOWrapper | None = None
 
 
 class ConceptoDTO(BaseModel):
@@ -196,17 +226,14 @@ class FacturaDTO(BaseModel):
 
 class FacturifyCartaPorteRequest(BaseModel):
     """Request en formato Facturify para Carta Porte."""
-    emisor: EmisorDTO
     receptor: ReceptorDTO
     factura: FacturaDTO
+    trip_id: int | None = Field(default=None, description="ID del viaje en adrh_logistics (para trazabilidad)")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "emisor": {
-                        "uuid": "6fe768d7-922f-4b8a-b1b7-ac2c30300d89"
-                    },
                     "receptor": {
                         "uuid": "96076f99-7105-4a62-a732-1ea33d88f4a0"
                     },

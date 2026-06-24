@@ -138,7 +138,7 @@ class ShipmentDTO(BaseModel):
 
 
 class CartaPorteRequest(BaseModel):
-    facturify_issuer_uuid: str = Field(..., description="UUID del emisor en Facturify")
+    """Request interno (flujo alternativo, no usado por el frontend)."""
     cfdi_type: Literal["ingreso", "traslado"] = "ingreso"
     recipient: PartyDTO
     cfdi_use: str = Field(default="G01")
@@ -155,7 +155,6 @@ class CartaPorteRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "issuer_id": "cedc4e5e-d690-4bab-b548-fd2662c53379",
                     "cfdi_type": "ingreso",
                     "recipient": {
                         "legal_name": "EMPRESA EJEMPLO SA DE CV",
@@ -265,9 +264,17 @@ class CartaPorteRequest(BaseModel):
 class CartaPorteResponse(BaseModel):
     invoice_id: UUID
     status: str
-    facturify_uuid: str | None = None
-    facturify_status: str | None = None
-    facturify_response: dict | None = None
+    cfdi_uuid: str | None = None
+    pac_response: dict | None = None
+    trip_id: int | None = None
+    pdf_url: str | None = Field(
+        default=None,
+        description="Ruta relativa al PDF timbrado, p. ej. /v1/cfdi/{uuid}/pdf",
+    )
+    xml_url: str | None = Field(
+        default=None,
+        description="Ruta relativa al XML timbrado, p. ej. /v1/cfdi/{uuid}/xml",
+    )
 
     model_config = {
         "from_attributes": True,
