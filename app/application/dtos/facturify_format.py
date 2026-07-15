@@ -18,6 +18,21 @@ class ReceptorDTO(BaseModel):
     forma_de_pago: str | None = None
 
 
+class EmisorDTO(BaseModel):
+    """Datos fiscales del emisor (empresa que timbra).
+
+    Opcional: si no se envía (o falta algún campo), se usa como respaldo la
+    configuración de FACTURALO_EMISOR_* en el entorno de billing_api. El
+    emisor "real" se gestiona hoy desde el módulo Mi cuenta en adrh_logistics
+    y se envía en cada solicitud de timbrado.
+    """
+    uuid: UUID | None = None
+    rfc: str | None = None
+    razon_social: str | None = None
+    cp: str | None = None
+    regimen_fiscal: str | None = None
+
+
 class DomicilioDTO(BaseModel):
     """Domicilio en formato SAT."""
     Calle: str
@@ -229,6 +244,10 @@ class FacturifyCartaPorteRequest(BaseModel):
     receptor: ReceptorDTO
     factura: FacturaDTO
     trip_id: int | None = Field(default=None, description="ID del viaje en adrh_logistics (para trazabilidad)")
+    emisor: EmisorDTO | None = Field(
+        default=None,
+        description="Datos del emisor. Si se omite, se usa FACTURALO_EMISOR_* del entorno.",
+    )
 
     model_config = {
         "json_schema_extra": {

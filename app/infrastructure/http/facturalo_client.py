@@ -37,9 +37,9 @@ class FacturaloPlusClient(CFDIProvider):
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        # Normalizar a LF: archivos .env en Windows tienen CRLF que OpenSSL rechaza
-        self._key_pem = key_pem.replace("\r\n", "\n").replace("\r", "\n")
-        self._cer_pem = cer_pem.replace("\r\n", "\n").replace("\r", "\n")
+        # Normalizar a LF: soporta CRLF (Windows), CR y \n literales (valor copiado de JSON).
+        self._key_pem = key_pem.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+        self._cer_pem = cer_pem.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
         self._csd_key_b64 = csd_key_b64
         self._csd_cer_b64 = csd_cer_b64
         self._csd_password = csd_password

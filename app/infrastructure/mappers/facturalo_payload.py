@@ -68,15 +68,32 @@ class FacturaloPayloadBuilder:
         self._emisor_cp = emisor_cp
         self._csd_serial = csd_serial
 
+    def resolve_emisor(self, request: FacturifyCartaPorteRequest) -> tuple[str, str, str, str]:
+        """Resuelve los datos del emisor: (rfc, nombre, regimen, cp).
+
+        Prioriza el emisor recibido en el request (gestionado desde el módulo
+        "Mi cuenta" en adrh_logistics) y usa FACTURALO_EMISOR_* como respaldo
+        por cada campo que falte, para no romper otros clientes que aún no
+        envíen `emisor` en el payload.
+        """
+        emisor = request.emisor
+        rfc = (emisor.rfc if emisor else None) or self._emisor_rfc
+        nombre = (emisor.razon_social if emisor else None) or self._emisor_nombre
+        regimen = (emisor.regimen_fiscal if emisor else None) or self._emisor_regimen
+        cp = (emisor.cp if emisor else None) or self._emisor_cp
+        return (
+            (rfc or "").strip(),
+            (nombre or "").strip(),
+            (regimen or "").strip(),
+            (cp or "").strip(),
+        )
+
     def build(self, request: FacturifyCartaPorteRequest) -> dict:
         """Retorna el dict listo para ser serializado y enviado a timbrarJSON2/3."""
         factura = request.factura
         receptor = request.receptor
 
-        emisor_rfc = self._emisor_rfc
-        emisor_nombre = self._emisor_nombre
-        lugar_expedicion = self._emisor_cp
-        emisor_regimen = self._emisor_regimen
+        emisor_rfc, emisor_nombre, emisor_regimen, lugar_expedicion = self.resolve_emisor(request)
         tipo_comprobante = _TIPO_COMPROBANTE_MAP.get(factura.tipo, "I")
 
         comprobante: dict = {
@@ -95,7 +112,12 @@ class FacturaloPayloadBuilder:
                 "RegimenFiscal": emisor_regimen,
             },
             "Receptor": self._build_receptor(
-                factura, receptor, emisor_rfc=emisor_rfc, lugar_expedicion=lugar_expedicion
+                factura,
+                receptor,
+                emisor_rfc=emisor_rfc,
+                emisor_nombre=emisor_nombre,
+                emisor_regimen=emisor_regimen,
+                lugar_expedicion=lugar_expedicion,
             ),
             "Conceptos": [self._build_concepto(c) for c in factura.conceptos],
         }
@@ -140,13 +162,15 @@ class FacturaloPayloadBuilder:
         receptor,
         *,
         emisor_rfc: str,
+        emisor_nombre: str,
+        emisor_regimen: str,
         lugar_expedicion: str,
     ) -> dict:
         if factura.tipo == "traslado":
             rfc = emisor_rfc
-            nombre = self._emisor_nombre
+            nombre = emisor_nombre
             cp = lugar_expedicion
-            regimen = self._emisor_regimen
+            regimen = emisor_regimen
             uso_cfdi = "S01"
         else:
             rfc = (receptor.rfc or "").strip() or RFC_PUBLICO_GENERAL
@@ -337,9 +361,10 @@ class FacturaloPayloadBuilder:
     def _build_mercancias(self, cp: CartaPorteComplementoDTO) -> dict:
         from decimal import Decimal
         m = cp.Mercancias
-        # Sumar los pesos ya formateados (2 dec) con Decimal para imitar exactamente
-        # lo que hace el SAT al validar CP149: sum(Mercancia.PesoEnKg) con precisión exacta
-        peso_bruto_calculado = sum(Decimal(_fmt(item.PesoEnKg)) for item in m.Mercancia)
+        # Sumar los pesos ya formateados (3 dec, tope SAT xs:decimal para PesoEnKg/PesoBrutoTotal/
+        # PesoNetoTotal) con Decimal para imitar exactamente lo que hace el SAT al validar CP149:
+        # sum(Mercancia.PesoEnKg) con precisión exacta.
+        peso_bruto_calculado = sum(Decimal(_fmt(item.PesoEnKg, 3)) for item in m.Mercancia)
         mercancias: dict = {
             "PesoBrutoTotal": str(peso_bruto_calculado),
             "UnidadPeso": m.UnidadPeso,
@@ -348,7 +373,7 @@ class FacturaloPayloadBuilder:
             "Autotransporte": self._build_autotransporte(m.Autotransporte),
         }
         if m.PesoNetoTotal and m.PesoNetoTotal > 0:
-            mercancias["PesoNetoTotal"] = _fmt(m.PesoNetoTotal)
+            mercancias["PesoNetoTotal"] = _fmt(m.PesoNetoTotal, 3)
         return mercancias
 
     def _build_mercancia(self, item: MercanciaDTO) -> dict:
@@ -357,7 +382,7 @@ class FacturaloPayloadBuilder:
             "Descripcion": item.Descripcion,
             "Cantidad": _fmt(item.Cantidad, 0) if item.Cantidad == int(item.Cantidad) else _fmt(item.Cantidad),
             "ClaveUnidad": item.ClaveUnidad,
-            "PesoEnKg": _fmt(item.PesoEnKg),
+            "PesoEnKg": _fmt(item.PesoEnKg, 3),
         }
 
         # MaterialPeligroso solo se incluye cuando el producto es peligroso ("Sí").

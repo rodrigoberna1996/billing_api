@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIASGIMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
 from app.core.database import dispose_engine, get_engine
@@ -20,6 +20,7 @@ from app.interfaces.api.internal_auth import require_internal_key
 from app.interfaces.api.limiter import limiter
 from app.interfaces.api.routers import (
     carta_porte,
+    certificates,
     clients,
     drafts,
     facturify_empresa,
@@ -59,9 +60,12 @@ async def lifespan(_: FastAPI):
                 "Revisa las variables de entorno."
             )
         if not settings.facturalo_emisor_rfc:
-            raise RuntimeError(
-                "FACTURALO_EMISOR_RFC no está configurado para producción. "
-                "Revisa las variables de entorno."
+            # Ya no es obligatorio: el emisor se gestiona desde "Mi cuenta" en
+            # adrh_logistics y se envía en cada request de timbrado. FACTURALO_EMISOR_*
+            # queda solo como respaldo para llamadas que no incluyan `emisor`.
+            logger.warning(
+                "FACTURALO_EMISOR_RFC no está configurado; se usará únicamente el "
+                "emisor recibido en cada request de timbrado (sin respaldo por entorno)."
             )
     get_engine()
     await get_redis()
@@ -105,6 +109,7 @@ def create_app() -> FastAPI:
     internal_dep = [Depends(require_internal_key)]
     app.include_router(facturify_empresa.router, dependencies=internal_dep)
     app.include_router(carta_porte.router, dependencies=internal_dep)
+    app.include_router(certificates.router, dependencies=internal_dep)
     app.include_router(clients.router, dependencies=internal_dep)
     app.include_router(drafts.router, dependencies=internal_dep)
     app.include_router(mercancias.router, dependencies=internal_dep)

@@ -324,7 +324,9 @@ async def create_carta_porte_endpoint(
             cfdi_use=factura.uso_cfdi or "S01",
             payment_form=factura.forma_de_pago,
             payment_method=factura.metodo_de_pago,
-            expedition_place=factura.lugar_expedicion or payload_builder._emisor_cp or "00000",
+            expedition_place=(
+                factura.lugar_expedicion or payload_builder.resolve_emisor(payload)[3] or "00000"
+            ),
             items=items,
             shipment=shipment,
             trip_id=payload.trip_id,

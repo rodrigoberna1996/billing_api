@@ -53,11 +53,16 @@ def validate_carta_porte_request(
     emisor_rfc_config: str = "",
     emisor_cp_config: str = "",
 ) -> list[ValidationIssue]:
-    """Retorna lista de problemas; vacía si el request es válido."""
+    """Retorna lista de problemas; vacía si el request es válido.
+
+    El emisor recibido en `request.emisor` (gestionado desde el módulo "Mi
+    cuenta" en adrh_logistics) tiene prioridad sobre `emisor_rfc_config` /
+    `emisor_cp_config`, que quedan como respaldo por variables de entorno.
+    """
     issues: list[ValidationIssue] = []
 
-    emisor_rfc = emisor_rfc_config.strip()
-    emisor_cp = emisor_cp_config.strip()
+    emisor_rfc = ((request.emisor.rfc if request.emisor else None) or emisor_rfc_config).strip()
+    emisor_cp = ((request.emisor.cp if request.emisor else None) or emisor_cp_config).strip()
     receptor_rfc = (request.receptor.rfc or "").strip().upper()
     receptor_nombre = (request.receptor.razon_social or "").strip().upper()
     factura = request.factura
