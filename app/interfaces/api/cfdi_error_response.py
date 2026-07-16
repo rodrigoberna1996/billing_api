@@ -14,7 +14,7 @@ def _hint_for_sat_code(code: str) -> str | None:
     hints: dict[str, str] = {
         "CP104": "Use moneda MXN para facturas de ingreso; XXX solo aplica a traslados.",
         "CP107": "En traslado el receptor debe ser el mismo RFC que el emisor.",
-        "CP115": 'El complemento debe ser Carta Porte versión 3.1.',
+        "CP115": "El complemento debe ser Carta Porte versión 3.1.",
         "CP147": "Revise que código postal, estado, municipio y colonia correspondan al catálogo SAT.",
         "CP184": "Agregue datos del remolque o cambie la configuración vehicular a una sin remolque (ej. C2).",
         "CFDI40130": "Factura a público en general: el sistema agrega InformacionGlobal automáticamente.",

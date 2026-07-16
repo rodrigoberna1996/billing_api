@@ -31,3 +31,12 @@ class TransportMode(str, Enum):
 class ShipmentLocationType(str, Enum):
     origin = "Origen"
     destination = "Destino"
+
+
+class CancelMotivo(str, Enum):
+    """Motivos de cancelación de CFDI según el catálogo del SAT (Anexo 20)."""
+
+    con_relacion = "01"  # Comprobante emitido con errores con relación
+    sin_relacion = "02"  # Comprobante emitido con errores sin relación
+    no_efectuada = "03"  # No se llevó a cabo la operación
+    global_nominativa = "04"  # Operación nominativa relacionada en factura global

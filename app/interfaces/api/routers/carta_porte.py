@@ -30,6 +30,7 @@ from app.domain.entities import (
     Vehicle,
 )
 from app.domain.enums import (
+    CancelMotivo,
     ComplementType,
     InvoiceStatus,
     InvoiceType,
@@ -79,8 +80,6 @@ async def _timbrado_background(
     invoice_id: UUID,
     sat_payload: dict,
     trip_id: int | None,
-    serie_hint: str | None,
-    folio_hint: str | None,
     uow_factory: UnitOfWorkFactory,
     facturalo_client: FacturaloPlusClient,
     logistics_client: LogisticsClient,
@@ -114,16 +113,13 @@ async def _timbrado_background(
     # --- 3. Procesar respuesta y persistir resultado (transacción breve) ---
     data = _extract_data_block(facturalo_response)
     cfdi_uuid: str | None = data.get("UUID")
-    serie = data.get("Serie") or serie_hint
-    folio_str = data.get("Folio") or folio_hint
-    folio = int(folio_str) if folio_str and str(folio_str).isdigit() else None
 
     if cfdi_uuid:
         data.setdefault("cfdi_uuid", cfdi_uuid)
-        if serie:
-            data.setdefault("serie", serie)
-        if folio is not None:
-            data.setdefault("folio", folio)
+        if invoice.serie:
+            data.setdefault("serie", invoice.serie)
+        if invoice.folio is not None:
+            data.setdefault("folio", invoice.folio)
         facturalo_response["data"] = data
 
         pdf_b64: str | None = data.get("PDF")
@@ -132,8 +128,8 @@ async def _timbrado_background(
         invoice.mark_issued(
             uuid=cfdi_uuid,
             payload=facturalo_response,
-            serie=serie,
-            folio=folio,
+            serie=invoice.serie,
+            folio=invoice.folio,
             provider="facturalo",
             xml=xml_text,
             pdf_b64=pdf_b64,
@@ -151,7 +147,7 @@ async def _timbrado_background(
 
     # Notificar a logistics (fire-and-forget, fuera de la transacción)
     if cfdi_uuid and trip_id:
-        ccp = f"{serie} {folio}" if serie and folio else None
+        ccp = f"{invoice.serie} {invoice.folio}" if invoice.serie and invoice.folio else None
         try:
             await logistics_client.notify_cfdi_issued(trip_id=trip_id, cfdi_uuid=cfdi_uuid, ccp=ccp)
         except Exception as exc:  # noqa: BLE001
@@ -335,14 +331,18 @@ async def create_carta_porte_endpoint(
 
         invoice = await uow.invoices.create(invoice)
 
+    # El folio/serie es autoritativo del backend (secuencia invoices_folio_seq),
+    # no del formulario: se inyecta aquí porque solo se conoce tras crear la factura.
+    sat_payload["Comprobante"]["Serie"] = invoice.serie
+    if invoice.folio is not None:
+        sat_payload["Comprobante"]["Folio"] = str(invoice.folio)
+
     # 3. Despachar timbrado como background task (respuesta inmediata al cliente)
     background_tasks.add_task(
         _timbrado_background,
         invoice_id=invoice.id,
         sat_payload=sat_payload,
         trip_id=payload.trip_id,
-        serie_hint=factura.serie,
-        folio_hint=factura.folio,
         uow_factory=uow_factory,
         facturalo_client=facturalo_client,
         logistics_client=logistics_client,
@@ -420,10 +420,39 @@ async def get_form_template_endpoint(
 async def cancel_invoice_endpoint(
     cfdi_uuid: str,
     motivo: str = Query(default="02", description="Motivo de cancelación SAT (01-04)"),
+    folio_sustitucion: str = Query(
+        default="",
+        description="UUID del CFDI que sustituye al cancelado (obligatorio si motivo=01)",
+    ),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     facturalo_client: FacturaloPlusClient = Depends(get_facturalo_client),
+    logistics_client: LogisticsClient = Depends(get_logistics_client),
 ) -> dict:
-    """Cancela un CFDI en el SAT usando FacturaloPlus."""
+    """Cancela un CFDI en el SAT usando FacturaloPlus y sincroniza el estatus local."""
+    valid_motivos = {m.value for m in CancelMotivo}
+    if motivo not in valid_motivos:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": (
+                    f"Motivo de cancelación inválido: {motivo}. "
+                    f"Use uno de {sorted(valid_motivos)}."
+                ),
+                "type": "validation_error",
+            },
+        )
+    if motivo == CancelMotivo.con_relacion.value and not folio_sustitucion:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": (
+                    "folio_sustitucion es obligatorio cuando motivo=01 "
+                    "(comprobante con relación)."
+                ),
+                "type": "validation_error",
+            },
+        )
+
     async with uow_factory() as uow:
         invoice = await uow.invoices.get_by_cfdi_uuid(cfdi_uuid)
 
@@ -433,8 +462,27 @@ async def cancel_invoice_endpoint(
             detail="Factura no encontrada para el UUID proporcionado",
         )
 
+    if invoice.status == InvoiceStatus.canceled:
+        return {"message": "La factura ya se encontraba cancelada.", "status": invoice.status.value}
+
+    if invoice.status != InvoiceStatus.issued:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "Solo se pueden cancelar facturas timbradas "
+                    f"(status actual: {invoice.status.value})."
+                ),
+                "type": "validation_error",
+            },
+        )
+
     rfc_receptor = invoice.recipient.rfc if invoice.recipient else ""
     total = str(invoice.total.amount)
+    # El RFC emisor real usado al timbrar (puede diferir del .env si vino de
+    # empresa_fiscal en adrh_logistics) se toma del snapshot guardado, no del entorno.
+    snapshot_comprobante = (invoice.form_snapshot or {}).get("Comprobante") or {}
+    rfc_emisor = snapshot_comprobante.get("Emisor", {}).get("Rfc", "")
 
     try:
         response = await facturalo_client.cancel_invoice(
@@ -442,13 +490,40 @@ async def cancel_invoice_endpoint(
             rfc_receptor=rfc_receptor,
             total=total,
             motivo=motivo,
+            rfc_emisor=rfc_emisor,
+            folio_sustitucion=folio_sustitucion,
         )
-        return response
     except exceptions.ExternalServiceError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=external_service_error_to_detail(error),
         ) from error
+
+    invoice.mark_canceled(
+        motivo=motivo, response=response, folio_sustitucion=folio_sustitucion or None
+    )
+
+    async with uow_factory() as uow:
+        await uow.invoices.update(invoice)
+
+    logger.info(
+        "Factura cancelada invoice=%s cfdi_uuid=%s motivo=%s", invoice.id, cfdi_uuid, motivo
+    )
+
+    if invoice.trip_id:
+        try:
+            await logistics_client.notify_cfdi_cancelled(
+                trip_id=invoice.trip_id, cfdi_uuid=cfdi_uuid
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Cancelación: fallo al notificar logistics trip=%s: %s", invoice.trip_id, exc
+            )
+
+    return {
+        "message": response.get("message", "La factura se canceló exitosamente."),
+        "status": invoice.status.value,
+    }
 
 
 # ---------------------------------------------------------------------------

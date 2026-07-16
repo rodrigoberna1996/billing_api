@@ -90,8 +90,14 @@ class FacturaloPlusClient(CFDIProvider):
         rfc_receptor: str = "",
         total: str = "0",
         motivo: str = "02",
+        rfc_emisor: str = "",
+        folio_sustitucion: str = "",
     ) -> dict:
-        """Cancela un CFDI usando el endpoint cancelar2 de FacturaloPlus."""
+        """Cancela un CFDI usando el endpoint cancelar2 de FacturaloPlus.
+
+        `folio_sustitucion` es el UUID del CFDI que sustituye al cancelado; el
+        manual de FacturaloPlus indica que debe enviarse vacío si no se usa.
+        """
         endpoint = f"{self._base_url}/api/rest/servicio/cancelar2"
         logger.info("FacturaloPlus cancelar2 uuid=%s motivo=%s", cfdi_uuid, motivo)
 
@@ -101,10 +107,11 @@ class FacturaloPlusClient(CFDIProvider):
             "cerCSD": self._csd_cer_b64,
             "passCSD": self._csd_password,
             "uuid": cfdi_uuid,
-            "rfcEmisor": self._emisor_rfc,
+            "rfcEmisor": rfc_emisor or self._emisor_rfc,
             "rfcReceptor": rfc_receptor,
             "total": total,
             "motivo": motivo,
+            "folioSustitucion": folio_sustitucion,
         })
 
     async def get_invoice(self, cfdi_uuid: str) -> dict:

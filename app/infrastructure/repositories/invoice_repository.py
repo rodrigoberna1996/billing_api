@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
@@ -12,6 +12,9 @@ from app.domain import enums
 from app.domain.entities import Address, Invoice, Money, Party
 from app.infrastructure.orm import models
 
+DEFAULT_INVOICE_SERIE = "CCP"
+FOLIO_SEQUENCE_NAME = "invoices_folio_seq"
+
 
 class SQLAlchemyInvoiceRepository(InvoiceRepository):
     def __init__(self, session: AsyncSession) -> None:
@@ -19,6 +22,10 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
 
     async def create(self, invoice: Invoice) -> Invoice:
         assert invoice.recipient.id is not None
+
+        result = await self._session.execute(text(f"SELECT nextval('{FOLIO_SEQUENCE_NAME}')"))
+        folio = result.scalar_one()
+        serie = invoice.serie or DEFAULT_INVOICE_SERIE
 
         orm = models.InvoiceORM(
             id=invoice.id,
@@ -34,10 +41,14 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
             expedition_place=invoice.expedition_place,
             status=invoice.status.value,
             trip_id=invoice.trip_id,
+            serie=serie,
+            folio=folio,
             form_snapshot=invoice.form_snapshot,
         )
         self._session.add(orm)
         await self._session.flush()
+        invoice.serie = serie
+        invoice.folio = folio
         return invoice
 
     async def update(self, invoice: Invoice) -> Invoice:
@@ -53,6 +64,9 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         orm.folio = invoice.folio
         orm.provider = invoice.provider
         orm.form_snapshot = invoice.form_snapshot
+        orm.cancelled_at = invoice.cancelled_at
+        orm.cancel_motivo = invoice.cancel_motivo
+        orm.cancel_response = invoice.cancel_response
         await self._session.flush()
         return invoice
 
@@ -126,6 +140,9 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         domain_invoice.folio = orm.folio
         domain_invoice.provider = orm.provider
         domain_invoice.form_snapshot = orm.form_snapshot
+        domain_invoice.cancelled_at = orm.cancelled_at
+        domain_invoice.cancel_motivo = orm.cancel_motivo
+        domain_invoice.cancel_response = orm.cancel_response
         return domain_invoice
 
     def _party_from_client(self, client: models.ClientORM) -> Party:

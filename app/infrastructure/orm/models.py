@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, Text, Float
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.enums import InvoiceStatus
@@ -56,5 +58,9 @@ class InvoiceORM(TimestampMixin, UUIDMixin, Base):
     folio: Mapped[int | None]
     provider: Mapped[str | None] = mapped_column(String(20))
     form_snapshot: Mapped[dict | None] = mapped_column(JSONB)
+
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_motivo: Mapped[str | None] = mapped_column(String(2))
+    cancel_response: Mapped[dict | None] = mapped_column(JSONB)
 
     recipient: Mapped[ClientORM] = relationship("ClientORM", back_populates="invoices")

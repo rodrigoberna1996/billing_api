@@ -122,10 +122,6 @@ class FacturaloPayloadBuilder:
             "Conceptos": [self._build_concepto(c) for c in factura.conceptos],
         }
 
-        if factura.serie:
-            comprobante["Serie"] = factura.serie
-        if factura.folio:
-            comprobante["Folio"] = factura.folio
         if factura.moneda != "XXX":
             comprobante["MetodoPago"] = factura.metodo_de_pago
             comprobante["FormaPago"] = factura.forma_de_pago

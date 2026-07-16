@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+from app.infrastructure.mappers.facturify_payload import FacturifyPayloadBuilder
+
 from app.domain import enums
 from app.domain.entities import (
     Address,
@@ -14,7 +16,6 @@ from app.domain.entities import (
     TransportFigure,
     Vehicle,
 )
-from app.infrastructure.mappers.facturify_payload import FacturifyPayloadBuilder
 
 
 def test_facturify_payload_contains_carta_porte_block() -> None:

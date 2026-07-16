@@ -143,6 +143,9 @@ class Invoice:
     folio: int | None = None
     provider: str | None = None
     form_snapshot: dict | None = None
+    cancelled_at: datetime | None = None
+    cancel_motivo: str | None = None
+    cancel_response: dict | None = None
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     id: UUID = field(default_factory=uuid4)
@@ -169,6 +172,17 @@ class Invoice:
 
     def mark_failed(self) -> None:
         self.status = InvoiceStatus.failed
+        self.updated_at = _utc_now()
+
+    def mark_canceled(
+        self, motivo: str, response: dict, folio_sustitucion: str | None = None
+    ) -> None:
+        self.status = InvoiceStatus.canceled
+        self.cancel_motivo = motivo
+        self.cancel_response = (
+            {**response, "folio_sustitucion": folio_sustitucion} if folio_sustitucion else response
+        )
+        self.cancelled_at = _utc_now()
         self.updated_at = _utc_now()
 
 

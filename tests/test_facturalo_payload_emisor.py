@@ -81,3 +81,19 @@ def test_build_uses_request_emisor_in_comprobante() -> None:
     assert comprobante["Emisor"]["Nombre"] == "ADRH LOGISTICS SA DE CV"
     assert comprobante["Emisor"]["RegimenFiscal"] == "624"
     assert comprobante["LugarExpedicion"] == "76800"
+
+
+def test_build_ignores_serie_folio_from_request() -> None:
+    """Serie/Folio ya no se toman del formulario: los asigna billing_api
+
+    (invoices_folio_seq) tras crear la factura, para garantizar un folio
+    consecutivo único y evitar condiciones de carrera.
+    """
+    request = FacturifyCartaPorteRequest.model_validate(
+        {**_EXAMPLE, "factura": {**_EXAMPLE["factura"], "serie": "CPT", "folio": "999"}}
+    )
+    payload = _builder().build(request)
+
+    comprobante = payload["Comprobante"]
+    assert "Serie" not in comprobante
+    assert "Folio" not in comprobante
