@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 
 _SAT_CODE_IN_MESSAGE = re.compile(r"\[([A-Z0-9]+)\]")
 
+# Códigos de éxito documentados en la Guía de implementación REST de FacturaloPlus.
+# Timbrado (timbrarJSON2/3): 200 = "Solicitud procesada con éxito".
+_TIMBRADO_SUCCESS_CODES = frozenset({"200"})
+# Cancelación (cancelar2): 201 = "UUID Cancelado exitosamente" (solicitud aceptada,
+# no garantiza cancelación inmediata); 202 = "UUID Previamente cancelado". A
+# diferencia del timbrado, aquí 200 NO es un código de éxito documentado.
+_CANCEL_SUCCESS_CODES = frozenset({"201", "202"})
+
 
 class FacturaloPlusClient(CFDIProvider):
     """Implementación de CFDIProvider usando FacturaloPlus como PAC."""
@@ -82,7 +90,7 @@ class FacturaloPlusClient(CFDIProvider):
             endpoint = f"{self._base_url}/api/rest/servicio/timbrarJSON3"
             logger.info("FacturaloPlus timbrarJSON3 → %s", endpoint)
 
-        return await self._post_form(endpoint, form_data)
+        return await self._post_form(endpoint, form_data, success_codes=_TIMBRADO_SUCCESS_CODES)
 
     async def cancel_invoice(
         self,
@@ -101,30 +109,39 @@ class FacturaloPlusClient(CFDIProvider):
         endpoint = f"{self._base_url}/api/rest/servicio/cancelar2"
         logger.info("FacturaloPlus cancelar2 uuid=%s motivo=%s", cfdi_uuid, motivo)
 
-        return await self._post_form(endpoint, {
-            "apikey": self._api_key,
-            "keyCSD": self._csd_key_b64,
-            "cerCSD": self._csd_cer_b64,
-            "passCSD": self._csd_password,
-            "uuid": cfdi_uuid,
-            "rfcEmisor": rfc_emisor or self._emisor_rfc,
-            "rfcReceptor": rfc_receptor,
-            "total": total,
-            "motivo": motivo,
-            "folioSustitucion": folio_sustitucion,
-        })
+        return await self._post_form(
+            endpoint,
+            {
+                "apikey": self._api_key,
+                "keyCSD": self._csd_key_b64,
+                "cerCSD": self._csd_cer_b64,
+                "passCSD": self._csd_password,
+                "uuid": cfdi_uuid,
+                "rfcEmisor": rfc_emisor or self._emisor_rfc,
+                "rfcReceptor": rfc_receptor,
+                "total": total,
+                "motivo": motivo,
+                "folioSustitucion": folio_sustitucion,
+            },
+            success_codes=_CANCEL_SUCCESS_CODES,
+        )
 
     async def get_invoice(self, cfdi_uuid: str) -> dict:
         """FacturaloPlus no expone endpoint de consulta; retorna dict con uuid."""
         return {"uuid": cfdi_uuid}
 
-    async def _post_form(self, url: str, data: dict) -> dict:
+    async def _post_form(
+        self,
+        url: str,
+        data: dict,
+        success_codes: frozenset[str] = _TIMBRADO_SUCCESS_CODES,
+    ) -> dict:
         try:
             async for attempt in AsyncRetrying(**self._retry_kwargs):
                 with attempt:
                     async with httpx.AsyncClient(timeout=self._timeout) as client:
                         response = await client.post(url, data=data)
-                        return self._parse_response(response)
+                        return self._parse_response(response, success_codes)
         except httpx.RequestError as exc:
             raise ExternalServiceError(
                 f"No se pudo contactar FacturaloPlus tras los reintentos ({type(exc).__name__}). "
@@ -136,7 +153,7 @@ class FacturaloPlusClient(CFDIProvider):
             code="network_error",
         )
 
-    def _parse_response(self, response: httpx.Response) -> dict:
+    def _parse_response(self, response: httpx.Response, success_codes: frozenset[str]) -> dict:
         try:
             body = response.json()
         except Exception as exc:
@@ -147,7 +164,7 @@ class FacturaloPlusClient(CFDIProvider):
             ) from exc
 
         code = str(body.get("code", ""))
-        if code != "200":
+        if code not in success_codes:
             message = body.get("message", "Error desconocido de FacturaloPlus")
             sat_code = self._extract_sat_code(message)
             logger.error(
@@ -160,6 +177,8 @@ class FacturaloPlusClient(CFDIProvider):
                 message,
                 code=sat_code or code,
             )
+
+        logger.info("FacturaloPlus OK code=%s message=%s", code, body.get("message"))
 
         raw_data = body.get("data", {})
         if isinstance(raw_data, str):
