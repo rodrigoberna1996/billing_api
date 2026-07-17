@@ -7,6 +7,7 @@ from app.application.ports.repositories import UnitOfWork
 from app.infrastructure.repositories import (
     SQLAlchemyClientGateway,
     SQLAlchemyInvoiceRepository,
+    SQLAlchemyInvoiceSettingsRepository,
 )
 
 
@@ -16,11 +17,13 @@ class SQLAlchemyUnitOfWork(UnitOfWork):
         self.session: AsyncSession | None = None
         self.clients = None
         self.invoices = None
+        self.invoice_settings = None
 
     async def __aenter__(self) -> "SQLAlchemyUnitOfWork":
         self.session = self._session_factory()
         self.clients = SQLAlchemyClientGateway(self.session)
         self.invoices = SQLAlchemyInvoiceRepository(self.session)
+        self.invoice_settings = SQLAlchemyInvoiceSettingsRepository(self.session)
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:  # type: ignore[override]

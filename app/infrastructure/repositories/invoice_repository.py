@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, selectinload
 
@@ -11,9 +11,6 @@ from app.application.ports.repositories import InvoiceRepository
 from app.domain import enums
 from app.domain.entities import Address, Invoice, Money, Party
 from app.infrastructure.orm import models
-
-DEFAULT_INVOICE_SERIE = "CCP"
-FOLIO_SEQUENCE_NAME = "invoices_folio_seq"
 
 
 class SQLAlchemyInvoiceRepository(InvoiceRepository):
@@ -23,9 +20,25 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
     async def create(self, invoice: Invoice) -> Invoice:
         assert invoice.recipient.id is not None
 
-        result = await self._session.execute(text(f"SELECT nextval('{FOLIO_SEQUENCE_NAME}')"))
-        folio = result.scalar_one()
-        serie = invoice.serie or DEFAULT_INVOICE_SERIE
+        # Reserva atómica de serie/folio desde invoice_settings (editable en "Mi cuenta").
+        # El UPDATE...RETURNING sobre la fila única id=1 es tan seguro ante concurrencia
+        # como nextval() en una secuencia (Postgres serializa updates sobre la misma fila).
+        result = await self._session.execute(
+            text(
+                "UPDATE invoice_settings "
+                "SET next_folio = next_folio + 1, updated_at = now() "
+                "WHERE id = 1 "
+                "RETURNING serie, next_folio - 1 AS folio"
+            )
+        )
+        row = result.first()
+        if row is None:
+            msg = (
+                "invoice_settings no está inicializada; ejecuta las migraciones "
+                "(alembic upgrade) antes de timbrar."
+            )
+            raise RuntimeError(msg)
+        serie, folio = row.serie, row.folio
 
         orm = models.InvoiceORM(
             id=invoice.id,
@@ -104,6 +117,11 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         )
         result = await self._session.execute(stmt)
         return [self._to_domain(orm) for orm in result.scalars().all()]
+
+    async def get_max_folio(self) -> int | None:
+        """Último folio ya asignado (usado para validar que no se pueda retroceder el contador)."""
+        result = await self._session.execute(select(func.max(models.InvoiceORM.folio)))
+        return result.scalar_one_or_none()
 
     async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None:
         """Carga solo los campos de documentos (pac_response, cfdi_xml, cfdi_pdf_b64) sin relaciones."""

@@ -14,6 +14,15 @@ from app.domain.enums import (
 )
 
 
+@dataclass(slots=True)
+class InvoiceSettings:
+    """Configuración de folio/serie del emisor, editable desde 'Mi cuenta'."""
+
+    serie: str
+    next_folio: int
+    updated_at: datetime | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class Money:
     amount: float

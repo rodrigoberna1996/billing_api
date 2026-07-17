@@ -16,6 +16,7 @@ from .carta_porte import (
 from .clients import ClientDTO, ClientsListResponse, ErrorResponse, MetaInfo, PaginationInfo
 from .drafts import DraftCreateBody, DraftCreatedResponse, DraftGetResponse, DraftUpsertBody
 from .facturify_format import FacturifyCartaPorteRequest
+from .invoice_settings import InvoiceSettingsRead, InvoiceSettingsUpdate
 
 __all__ = [
     "AddressDTO",
@@ -33,6 +34,8 @@ __all__ = [
     "InvoiceHistoryItem",
     "InvoiceHistoryResponse",
     "InvoiceItemDTO",
+    "InvoiceSettingsRead",
+    "InvoiceSettingsUpdate",
     "MetaInfo",
     "PaginationInfo",
     "PartyDTO",

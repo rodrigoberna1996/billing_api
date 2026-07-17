@@ -25,6 +25,7 @@ from app.interfaces.api.routers import (
     drafts,
     facturify_empresa,
     health,
+    invoice_settings,
     mercancias,
 )
 
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(clients.router, dependencies=internal_dep)
     app.include_router(drafts.router, dependencies=internal_dep)
     app.include_router(mercancias.router, dependencies=internal_dep)
+    app.include_router(invoice_settings.router, dependencies=internal_dep)
     return app
 
 

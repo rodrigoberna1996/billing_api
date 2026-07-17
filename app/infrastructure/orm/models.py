@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,3 +64,16 @@ class InvoiceORM(TimestampMixin, UUIDMixin, Base):
     cancel_response: Mapped[dict | None] = mapped_column(JSONB)
 
     recipient: Mapped[ClientORM] = relationship("ClientORM", back_populates="invoices")
+
+
+class InvoiceSettingsORM(Base):
+    """Fila única (id=1) con la serie y el próximo folio a asignar, editable desde 'Mi cuenta'."""
+
+    __tablename__ = "invoice_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    serie: Mapped[str] = mapped_column(String(10), nullable=False)
+    next_folio: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
