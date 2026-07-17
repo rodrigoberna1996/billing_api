@@ -24,6 +24,8 @@ class InvoiceRepository(Protocol):
 
     async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None: ...
 
+    async def list_by_trip_id(self, trip_id: int) -> list[Invoice]: ...
+
 
 class UnitOfWork(Protocol):
     clients: ClientGateway

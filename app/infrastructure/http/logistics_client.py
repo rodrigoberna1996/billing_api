@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -72,8 +73,18 @@ class LogisticsClient:
                 cfdi_uuid,
             )
 
-    async def notify_cfdi_cancelled(self, trip_id: int, cfdi_uuid: str) -> None:
+    async def notify_cfdi_cancelled(
+        self,
+        trip_id: int,
+        cfdi_uuid: str,
+        motivo: str | None = None,
+        cancelled_at: datetime | None = None,
+    ) -> None:
         """Llama a DELETE /internal/trips/{trip_id}/cfdi para limpiar timbre_uuid/ccp.
+
+        Envía `cfdi_uuid`, `motivo` y `cancelled_at` en el body para que
+        adrh_logistics conserve un snapshot de la cancelación (trazabilidad),
+        antes de limpiar los campos activos del viaje.
 
         Fire-and-forget: los errores se loguean pero no interrumpen la respuesta al cliente.
         """
@@ -87,12 +98,22 @@ class LogisticsClient:
             return
 
         url = f"{self._base_url}/internal/trips/{trip_id}/cfdi"
+        payload: dict = {"cfdi_uuid": cfdi_uuid}
+        if motivo:
+            payload["motivo"] = motivo
+        if cancelled_at:
+            payload["cancelled_at"] = cancelled_at.isoformat()
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.delete(
+                response = await client.request(
+                    "DELETE",
                     url,
-                    headers={"X-Internal-Key": self._api_key},
+                    json=payload,
+                    headers={
+                        "X-Internal-Key": self._api_key,
+                        "Content-Type": "application/json",
+                    },
                 )
                 if response.is_success:
                     logger.info(

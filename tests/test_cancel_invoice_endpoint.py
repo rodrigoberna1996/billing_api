@@ -93,7 +93,7 @@ def _uow_factory(invoice: Invoice | None):
 
 class _FakeFacturaloClient:
     def __init__(self, response: dict | None = None) -> None:
-        self.response = response or {"code": "200", "message": "Cancelado exitosamente"}
+        self.response = response or {"code": "201", "message": "UUID Cancelado exitosamente."}
         self.calls: list[dict] = []
 
     async def cancel_invoice(self, **kwargs: Any) -> dict:
@@ -103,10 +103,23 @@ class _FakeFacturaloClient:
 
 class _FakeLogisticsClient:
     def __init__(self) -> None:
-        self.notified: list[tuple[int, str]] = []
+        self.notified: list[dict] = []
 
-    async def notify_cfdi_cancelled(self, trip_id: int, cfdi_uuid: str) -> None:
-        self.notified.append((trip_id, cfdi_uuid))
+    async def notify_cfdi_cancelled(
+        self,
+        trip_id: int,
+        cfdi_uuid: str,
+        motivo: str | None = None,
+        cancelled_at: Any | None = None,
+    ) -> None:
+        self.notified.append(
+            {
+                "trip_id": trip_id,
+                "cfdi_uuid": cfdi_uuid,
+                "motivo": motivo,
+                "cancelled_at": cancelled_at,
+            }
+        )
 
 
 async def test_cancel_rejects_invalid_motivo() -> None:
@@ -202,4 +215,8 @@ async def test_cancel_success_updates_status_resolves_emisor_and_notifies_logist
     assert facturalo_client.calls[0]["rfc_emisor"] == "ALO161103C77"
     assert uow_factory.repo.updated.status == InvoiceStatus.canceled
     assert uow_factory.repo.updated.cancel_motivo == "02"
-    assert logistics_client.notified == [(712, CFDI_UUID)]
+    assert len(logistics_client.notified) == 1
+    assert logistics_client.notified[0]["trip_id"] == 712
+    assert logistics_client.notified[0]["cfdi_uuid"] == CFDI_UUID
+    assert logistics_client.notified[0]["motivo"] == "02"
+    assert logistics_client.notified[0]["cancelled_at"] is not None

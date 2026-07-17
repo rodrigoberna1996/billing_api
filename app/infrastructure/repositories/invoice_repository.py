@@ -94,6 +94,17 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
             return None
         return self._to_domain(orm)
 
+    async def list_by_trip_id(self, trip_id: int) -> list[Invoice]:
+        """Historial de facturas (issued/canceled/failed) de un viaje, más reciente primero."""
+        stmt = (
+            select(models.InvoiceORM)
+            .where(models.InvoiceORM.trip_id == trip_id)
+            .options(selectinload(models.InvoiceORM.recipient))
+            .order_by(models.InvoiceORM.created_at.desc())
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_domain(orm) for orm in result.scalars().all()]
+
     async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None:
         """Carga solo los campos de documentos (pac_response, cfdi_xml, cfdi_pdf_b64) sin relaciones."""
         stmt = (
@@ -143,6 +154,8 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         domain_invoice.cancelled_at = orm.cancelled_at
         domain_invoice.cancel_motivo = orm.cancel_motivo
         domain_invoice.cancel_response = orm.cancel_response
+        domain_invoice.created_at = orm.created_at
+        domain_invoice.updated_at = orm.updated_at
         return domain_invoice
 
     def _party_from_client(self, client: models.ClientORM) -> Party:

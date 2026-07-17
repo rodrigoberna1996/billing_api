@@ -12,7 +12,12 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 
-from app.application.dtos import CartaPorteResponse, FormTemplateResponse
+from app.application.dtos import (
+    CartaPorteResponse,
+    FormTemplateResponse,
+    InvoiceHistoryItem,
+    InvoiceHistoryResponse,
+)
 from app.application.dtos.facturify_format import FacturifyCartaPorteRequest
 from app.application.services.carta_porte_validation import CartaPorteValidationError
 from app.core import exceptions
@@ -413,6 +418,43 @@ async def get_form_template_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/cfdi/by-trip/{trip_id}
+# ---------------------------------------------------------------------------
+
+
+@router.get("/by-trip/{trip_id}", response_model=InvoiceHistoryResponse)
+async def get_invoice_history_by_trip_endpoint(
+    trip_id: int,
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> InvoiceHistoryResponse:
+    """Historial de facturas (vigentes, canceladas o fallidas) de un viaje.
+
+    Permite mostrar en el frontend que un viaje tuvo una factura cancelada
+    (con acceso a su PDF/XML para auditoría) aunque el viaje ya no tenga un
+    timbre_uuid activo.
+    """
+    async with uow_factory() as uow:
+        invoices = await uow.invoices.list_by_trip_id(trip_id)
+
+    items = [
+        InvoiceHistoryItem(
+            invoice_id=invoice.id,
+            status=invoice.status.value,
+            serie=invoice.serie,
+            folio=invoice.folio,
+            cfdi_uuid=invoice.cfdi_uuid,
+            cancel_motivo=invoice.cancel_motivo,
+            cancelled_at=invoice.cancelled_at,
+            created_at=invoice.created_at,
+            pdf_url=f"/v1/cfdi/{invoice.cfdi_uuid}/pdf" if invoice.cfdi_uuid else None,
+            xml_url=f"/v1/cfdi/{invoice.cfdi_uuid}/xml" if invoice.cfdi_uuid else None,
+        )
+        for invoice in invoices
+    ]
+    return InvoiceHistoryResponse(trip_id=trip_id, invoices=items)
+
+
+# ---------------------------------------------------------------------------
 # PUT /v1/cfdi/{cfdi_uuid}/cancel
 # ---------------------------------------------------------------------------
 
@@ -513,7 +555,10 @@ async def cancel_invoice_endpoint(
     if invoice.trip_id:
         try:
             await logistics_client.notify_cfdi_cancelled(
-                trip_id=invoice.trip_id, cfdi_uuid=cfdi_uuid
+                trip_id=invoice.trip_id,
+                cfdi_uuid=cfdi_uuid,
+                motivo=motivo,
+                cancelled_at=invoice.cancelled_at,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(

@@ -286,3 +286,23 @@ class FormTemplateResponse(BaseModel):
 
     invoice_id: UUID
     payload: dict[str, Any]
+
+
+class InvoiceHistoryItem(BaseModel):
+    """Resumen de una factura (vigente, cancelada o fallida) asociada a un viaje."""
+
+    invoice_id: UUID
+    status: str
+    serie: str | None = None
+    folio: int | None = None
+    cfdi_uuid: str | None = None
+    cancel_motivo: str | None = None
+    cancelled_at: datetime | None = None
+    created_at: datetime
+    pdf_url: str | None = Field(default=None, description="Solo si cfdi_uuid está presente")
+    xml_url: str | None = Field(default=None, description="Solo si cfdi_uuid está presente")
+
+
+class InvoiceHistoryResponse(BaseModel):
+    trip_id: int
+    invoices: list[InvoiceHistoryItem]
