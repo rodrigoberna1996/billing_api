@@ -57,6 +57,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
             serie=serie,
             folio=folio,
             form_snapshot=invoice.form_snapshot,
+            request_snapshot=invoice.request_snapshot,
         )
         self._session.add(orm)
         await self._session.flush()
@@ -77,6 +78,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         orm.folio = invoice.folio
         orm.provider = invoice.provider
         orm.form_snapshot = invoice.form_snapshot
+        orm.request_snapshot = invoice.request_snapshot
         orm.cancelled_at = invoice.cancelled_at
         orm.cancel_motivo = invoice.cancel_motivo
         orm.cancel_response = invoice.cancel_response
@@ -117,6 +119,24 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         )
         result = await self._session.execute(stmt)
         return [self._to_domain(orm) for orm in result.scalars().all()]
+
+    async def get_last_issued_with_request_snapshot_by_rfc(self, rfc: str) -> Invoice | None:
+        """Última factura issued del receptor con request_snapshot (para precargar UI)."""
+        stmt = (
+            select(models.InvoiceORM)
+            .join(models.ClientORM, models.InvoiceORM.recipient_id == models.ClientORM.id)
+            .where(
+                models.ClientORM.rfc == rfc.upper().strip(),
+                models.InvoiceORM.status == enums.InvoiceStatus.issued.value,
+                models.InvoiceORM.request_snapshot.isnot(None),
+            )
+            .options(selectinload(models.InvoiceORM.recipient))
+            .order_by(models.InvoiceORM.created_at.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        orm = result.scalar_one_or_none()
+        return self._to_domain(orm) if orm else None
 
     async def get_max_folio(self) -> int | None:
         """Último folio en uso (pending/issued/canceled). Ignora failed para no bloquear el contador."""
@@ -186,6 +206,7 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         domain_invoice.folio = orm.folio
         domain_invoice.provider = orm.provider
         domain_invoice.form_snapshot = orm.form_snapshot
+        domain_invoice.request_snapshot = orm.request_snapshot
         domain_invoice.cancelled_at = orm.cancelled_at
         domain_invoice.cancel_motivo = orm.cancel_motivo
         domain_invoice.cancel_response = orm.cancel_response

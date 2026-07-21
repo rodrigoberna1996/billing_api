@@ -58,6 +58,8 @@ class InvoiceORM(TimestampMixin, UUIDMixin, Base):
     folio: Mapped[int | None]
     provider: Mapped[str | None] = mapped_column(String(20))
     form_snapshot: Mapped[dict | None] = mapped_column(JSONB)
+    # Snapshot del formulario UI (FacturaDraft) para precargar facturas del mismo receptor
+    request_snapshot: Mapped[dict | None] = mapped_column(JSONB)
 
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_motivo: Mapped[str | None] = mapped_column(String(2))

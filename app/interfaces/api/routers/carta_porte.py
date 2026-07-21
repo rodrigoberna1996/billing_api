@@ -351,6 +351,7 @@ async def create_carta_porte_endpoint(
             shipment=shipment,
             trip_id=payload.trip_id,
             status=InvoiceStatus.pending,
+            request_snapshot=payload.ui_draft,
         )
 
         invoice = await uow.invoices.create(invoice)
@@ -424,16 +425,50 @@ async def get_form_template_endpoint(
 ) -> FormTemplateResponse:
     async with uow_factory() as uow:
         invoice = await uow.invoices.get_by_id(invoice_id)
+    snapshot = None
+    if invoice is not None:
+        # Preferir snapshot UI (prellenado del dialog); fallback al SAT histórico.
+        snapshot = invoice.request_snapshot or invoice.form_snapshot
     if (
         invoice is None
         or invoice.status != InvoiceStatus.issued
-        or not invoice.form_snapshot
+        or not snapshot
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plantilla no disponible (solo facturas timbradas con snapshot).",
         )
-    return FormTemplateResponse(invoice_id=invoice.id, payload=invoice.form_snapshot)
+    return FormTemplateResponse(invoice_id=invoice.id, payload=snapshot)
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/cfdi/by-receptor/{rfc}/last-form
+# ---------------------------------------------------------------------------
+
+
+@router.get("/by-receptor/{rfc}/last-form", response_model=FormTemplateResponse)
+async def get_last_form_by_receptor_endpoint(
+    rfc: str,
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+) -> FormTemplateResponse:
+    """Última factura issued del receptor con ui_draft (request_snapshot) para precargar el dialog."""
+    rfc_norm = (rfc or "").strip().upper()
+    if not rfc_norm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="RFC es requerido",
+        )
+
+    async with uow_factory() as uow:
+        invoice = await uow.invoices.get_last_issued_with_request_snapshot_by_rfc(rfc_norm)
+
+    if invoice is None or not invoice.request_snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No hay formulario previo para este receptor.",
+        )
+
+    return FormTemplateResponse(invoice_id=invoice.id, payload=invoice.request_snapshot)
 
 
 # ---------------------------------------------------------------------------

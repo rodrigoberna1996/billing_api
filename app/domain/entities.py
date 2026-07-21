@@ -152,6 +152,7 @@ class Invoice:
     folio: int | None = None
     provider: str | None = None
     form_snapshot: dict | None = None
+    request_snapshot: dict | None = None
     cancelled_at: datetime | None = None
     cancel_motivo: str | None = None
     cancel_response: dict | None = None

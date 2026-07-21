@@ -26,6 +26,10 @@ class InvoiceRepository(Protocol):
 
     async def list_by_trip_id(self, trip_id: int) -> list[Invoice]: ...
 
+    async def get_last_issued_with_request_snapshot_by_rfc(self, rfc: str) -> Invoice | None:
+        """Última factura issued del receptor con request_snapshot (para precargar UI)."""
+        ...
+
     async def get_max_folio(self) -> int | None: ...
 
     async def release_folio_if_latest(self, folio: int) -> bool:

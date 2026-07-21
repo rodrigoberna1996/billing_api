@@ -1,7 +1,7 @@
 """DTOs para el formato de entrada compatible con Facturify."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -253,6 +253,13 @@ class FacturifyCartaPorteRequest(BaseModel):
     emisor: EmisorDTO | None = Field(
         default=None,
         description="Datos del emisor. Si se omite, se usa FACTURALO_EMISOR_* del entorno.",
+    )
+    ui_draft: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Snapshot del formulario UI (FacturaDraft) para precargar facturas futuras "
+            "del mismo receptor. No se envía al PAC."
+        ),
     )
 
     model_config = {
