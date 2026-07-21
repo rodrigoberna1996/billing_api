@@ -28,6 +28,14 @@ class InvoiceRepository(Protocol):
 
     async def get_max_folio(self) -> int | None: ...
 
+    async def release_folio_if_latest(self, folio: int) -> bool:
+        """Devuelve el folio al contador si aún es el último asignado (next_folio == folio+1).
+
+        Evita quemar numeración cuando el timbrado falla y no hubo otro allocate concurrente.
+        Retorna True si se revirtió el contador.
+        """
+        ...
+
 
 class InvoiceSettingsRepository(Protocol):
     async def get(self) -> InvoiceSettings: ...

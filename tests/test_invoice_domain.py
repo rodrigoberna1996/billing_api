@@ -58,3 +58,16 @@ def test_mark_canceled_stores_folio_sustitucion_in_response() -> None:
     invoice.mark_canceled(motivo="01", response=response, folio_sustitucion=sustitucion_uuid)
 
     assert invoice.cancel_response["folio_sustitucion"] == sustitucion_uuid
+
+
+def test_mark_failed_clears_serie_and_folio() -> None:
+    """Los intentos fallidos no deben conservar folio (se libera para reutilizar)."""
+    invoice = _invoice()
+    invoice.status = InvoiceStatus.pending
+    invoice.cfdi_uuid = None
+
+    invoice.mark_failed()
+
+    assert invoice.status == InvoiceStatus.failed
+    assert invoice.serie is None
+    assert invoice.folio is None

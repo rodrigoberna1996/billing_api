@@ -109,10 +109,19 @@ async def _timbrado_background(
         facturalo_response = await facturalo_client.create_carta_porte(sat_payload)
     except exceptions.ExternalServiceError as error:
         logger.error("Background timbrado error FacturaloPlus invoice=%s: %s", invoice_id, str(error))
+        folio_to_release = invoice.folio
         invoice.mark_failed()
         invoice.pac_response = {"error": str(error), "code": getattr(error, "code", "external_error")}
         async with uow_factory() as uow:
             await uow.invoices.update(invoice)
+            if folio_to_release is not None:
+                released = await uow.invoices.release_folio_if_latest(folio_to_release)
+                logger.info(
+                    "Timbrado fallido invoice=%s: folio %s %s",
+                    invoice_id,
+                    folio_to_release,
+                    "liberado" if released else "no liberado (ya hubo otro allocate)",
+                )
         return
 
     # --- 3. Procesar respuesta y persistir resultado (transacción breve) ---
@@ -140,13 +149,23 @@ async def _timbrado_background(
             pdf_b64=pdf_b64,
         )
         invoice.form_snapshot = sat_payload
+        async with uow_factory() as uow:
+            await uow.invoices.update(invoice)
     else:
         logger.warning("Background timbrado: FacturaloPlus no devolvió UUID para invoice=%s", invoice_id)
+        folio_to_release = invoice.folio
         invoice.mark_failed()
         invoice.pac_response = facturalo_response
-
-    async with uow_factory() as uow:
-        await uow.invoices.update(invoice)
+        async with uow_factory() as uow:
+            await uow.invoices.update(invoice)
+            if folio_to_release is not None:
+                released = await uow.invoices.release_folio_if_latest(folio_to_release)
+                logger.info(
+                    "Timbrado sin UUID invoice=%s: folio %s %s",
+                    invoice_id,
+                    folio_to_release,
+                    "liberado" if released else "no liberado (ya hubo otro allocate)",
+                )
 
     logger.info("Background timbrado completado invoice=%s status=%s uuid=%s", invoice_id, invoice.status, cfdi_uuid)
 

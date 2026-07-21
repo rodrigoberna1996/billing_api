@@ -180,7 +180,15 @@ class Invoice:
         self.updated_at = _utc_now()
 
     def mark_failed(self) -> None:
+        """Marca el intento como fallido y libera serie/folio para no quemar numeración.
+
+        El folio se reservó al crear el pending (debe ir en el XML a timbrar). Si el PAC
+        rechaza, ese número no corresponde a un CFDI válido: se limpia del registro y el
+        repositorio puede devolverlo al contador si sigue siendo el último asignado.
+        """
         self.status = InvoiceStatus.failed
+        self.serie = None
+        self.folio = None
         self.updated_at = _utc_now()
 
     def mark_canceled(

@@ -119,9 +119,26 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         return [self._to_domain(orm) for orm in result.scalars().all()]
 
     async def get_max_folio(self) -> int | None:
-        """Último folio ya asignado (usado para validar que no se pueda retroceder el contador)."""
-        result = await self._session.execute(select(func.max(models.InvoiceORM.folio)))
+        """Último folio en uso (pending/issued/canceled). Ignora failed para no bloquear el contador."""
+        result = await self._session.execute(
+            select(func.max(models.InvoiceORM.folio)).where(
+                models.InvoiceORM.status != enums.InvoiceStatus.failed.value
+            )
+        )
         return result.scalar_one_or_none()
+
+    async def release_folio_if_latest(self, folio: int) -> bool:
+        """Revierte next_folio si este folio sigue siendo el último asignado."""
+        result = await self._session.execute(
+            text(
+                "UPDATE invoice_settings "
+                "SET next_folio = :folio, updated_at = now() "
+                "WHERE id = 1 AND next_folio = :folio + 1 "
+                "RETURNING next_folio"
+            ),
+            {"folio": folio},
+        )
+        return result.first() is not None
 
     async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None:
         """Carga solo los campos de documentos (pac_response, cfdi_xml, cfdi_pdf_b64) sin relaciones."""
