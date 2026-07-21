@@ -49,6 +49,11 @@ class Settings(BaseSettings):
         default="transporteterrestre31",
         alias="FACTURALO_PDF_PLANTILLA",
     )
+    # Ruta al logo PNG/JPEG del emisor para el PDF (relativa a la raíz del repo o absoluta)
+    facturalo_logo_path: str = Field(
+        default="assets/logo_transportes_ruiz.png",
+        alias="FACTURALO_LOGO_PATH",
+    )
 
     # Integración con adrh_logistics (callback event-driven post-timbrado)
     logistics_api_url: str = Field(default="", alias="LOGISTICS_API_URL")

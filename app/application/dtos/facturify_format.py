@@ -25,12 +25,18 @@ class EmisorDTO(BaseModel):
     configuración de FACTURALO_EMISOR_* en el entorno de billing_api. El
     emisor "real" se gestiona hoy desde el módulo Mi cuenta en adrh_logistics
     y se envía en cada solicitud de timbrado.
+
+    `direccion`, `telefono` y `correo` solo afectan la representación impresa
+    (CamposPDF); no forman parte del nodo Emisor del XML SAT.
     """
     uuid: UUID | None = None
     rfc: str | None = None
     razon_social: str | None = None
     cp: str | None = None
     regimen_fiscal: str | None = None
+    direccion: str | None = None
+    telefono: str | None = None
+    correo: str | None = None
 
 
 class DomicilioDTO(BaseModel):

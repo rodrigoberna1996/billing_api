@@ -1,7 +1,11 @@
 """Builder que transforma FacturifyCartaPorteRequest al JSON SAT-nativo para FacturaloPlus."""
 from __future__ import annotations
 
+import base64
+import logging
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 
 from app.application.dtos.facturify_format import (
     CartaPorteComplementoDTO,
@@ -10,6 +14,11 @@ from app.application.dtos.facturify_format import (
     MercanciaDTO,
     UbicacionDTO,
 )
+
+logger = logging.getLogger(__name__)
+
+# app/infrastructure/mappers/ → raíz del repositorio
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 RFC_PUBLICO_GENERAL = "XAXX010101000"
 NOMBRE_PUBLICO_GENERAL = "PUBLICO EN GENERAL"
@@ -51,6 +60,24 @@ def _parse_fecha(fecha: str) -> datetime:
     return datetime.fromisoformat(_normalize_fecha(fecha))
 
 
+@lru_cache(maxsize=4)
+def load_logo_b64(path: str) -> str:
+    """Lee un archivo de logo y lo convierte a base64 para el campo `logo` de FacturaloPlus.
+
+    `path` puede ser absoluta o relativa a la raíz del repositorio. Si el archivo no
+    existe, retorna cadena vacía (el PDF se genera sin logo).
+    """
+    if not path or not path.strip():
+        return ""
+    logo_path = Path(path.strip())
+    if not logo_path.is_absolute():
+        logo_path = _PROJECT_ROOT / logo_path
+    if not logo_path.is_file():
+        logger.warning("Logo no encontrado en %s; el PDF se generará sin logo", logo_path)
+        return ""
+    return base64.b64encode(logo_path.read_bytes()).decode("ascii")
+
+
 class FacturaloPayloadBuilder:
     """Construye el payload JSON SAT-nativo para FacturaloPlus a partir del DTO de entrada."""
 
@@ -61,12 +88,14 @@ class FacturaloPayloadBuilder:
         emisor_regimen: str,
         emisor_cp: str,
         csd_serial: str = "",
+        logo_path: str = "",
     ) -> None:
         self._emisor_rfc = emisor_rfc
         self._emisor_nombre = emisor_nombre
         self._emisor_regimen = emisor_regimen
         self._emisor_cp = emisor_cp
         self._csd_serial = csd_serial
+        self._logo_b64 = load_logo_b64(logo_path) if logo_path else ""
 
     def resolve_emisor(self, request: FacturifyCartaPorteRequest) -> tuple[str, str, str, str]:
         """Resuelve los datos del emisor: (rfc, nombre, regimen, cp).
@@ -140,8 +169,13 @@ class FacturaloPayloadBuilder:
 
         return {
             "Comprobante": comprobante,
-            "CamposPDF": self._build_campos_pdf(factura, carta_porte),
-            "logo": "",
+            "CamposPDF": self._build_campos_pdf(
+                factura,
+                carta_porte,
+                emisor=request.emisor,
+                emisor_cp=lugar_expedicion,
+            ),
+            "logo": self._logo_b64,
         }
 
     def _build_informacion_global(self, fecha: str) -> dict:
@@ -445,7 +479,14 @@ class FacturaloPayloadBuilder:
             figura["NumLicencia"] = f.NumLicencia
         return figura
 
-    def _build_campos_pdf(self, factura, cp: CartaPorteComplementoDTO) -> dict:
+    def _build_campos_pdf(
+        self,
+        factura,
+        cp: CartaPorteComplementoDTO,
+        *,
+        emisor=None,
+        emisor_cp: str = "",
+    ) -> dict:
         origen = next(
             (u for u in cp.Ubicaciones.Ubicacion if u.TipoUbicacion == "Origen"), None
         )
@@ -472,7 +513,14 @@ class FacturaloPayloadBuilder:
         )
         auto = cp.Mercancias.Autotransporte
 
-        return {
+        # Dirección/contacto del emisor: texto libre desde Mi cuenta (empresa_fiscal).
+        # FacturaloPlus los inserta en la plantilla PDF vía CamposPDF (no van al XML SAT).
+        direccion = ((emisor.direccion if emisor else None) or "").strip()
+        telefono = ((emisor.telefono if emisor else None) or "").strip()
+        correo = ((emisor.correo if emisor else None) or "").strip()
+        cp_emisor = (emisor_cp or "").strip()
+
+        campos: dict = {
             "tipoComprobante": "CARTA PORTE",
             "Comentarios": "",
             "CartaPorte_Origen": _dir(origen),
@@ -484,4 +532,11 @@ class FacturaloPayloadBuilder:
                 f"{auto.IdentificacionVehicular.AnioModeloVM}"
             ),
             "CartaPorte_Kilometros": _fmt(cp.TotalDistRec),
+            # Domicilio / contacto emisor (plantillas FacturaloPlus: *Emisor)
+            "calleEmisor": direccion,
+            "codigoPostalEmisor": cp_emisor,
+            "telefonoEmisor": telefono,
+            "emailEmisor": correo,
+            "correoEmisor": correo,
         }
+        return campos

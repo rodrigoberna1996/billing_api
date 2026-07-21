@@ -53,6 +53,7 @@ def get_facturalo_payload_builder(settings: Settings = Depends(get_app_settings)
         emisor_regimen=settings.facturalo_emisor_regimen,
         emisor_cp=settings.facturalo_emisor_cp,
         csd_serial=settings.facturalo_csd_serial,
+        logo_path=settings.facturalo_logo_path,
     )
 
 

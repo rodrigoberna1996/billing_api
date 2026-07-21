@@ -62,7 +62,31 @@ def test_resolve_emisor_falls_back_per_field() -> None:
     assert cp == "00000"
 
 
-def test_build_uses_request_emisor_in_comprobante() -> None:
+def test_build_campos_pdf_includes_emisor_contacto() -> None:
+    """Dirección/teléfono/correo del emisor van a CamposPDF (representación impresa)."""
+    request = FacturifyCartaPorteRequest.model_validate(
+        {
+            **_EXAMPLE,
+            "emisor": {
+                "rfc": "ALO161103C77",
+                "razon_social": "ADRH LOGISTICS SA DE CV",
+                "cp": "76800",
+                "regimen_fiscal": "601",
+                "direccion": "Av. Industria 123, Col. Centro, Querétaro, Qro.",
+                "telefono": "4421234567",
+                "correo": "facturacion@adrh.mx",
+            },
+        }
+    )
+    payload = _builder().build(request)
+    campos = payload["CamposPDF"]
+
+    assert campos["calleEmisor"] == "Av. Industria 123, Col. Centro, Querétaro, Qro."
+    assert campos["codigoPostalEmisor"] == "76800"
+    assert campos["telefonoEmisor"] == "4421234567"
+    assert campos["emailEmisor"] == "facturacion@adrh.mx"
+    assert campos["correoEmisor"] == "facturacion@adrh.mx"
+
     request = FacturifyCartaPorteRequest.model_validate(
         {
             **_EXAMPLE,
