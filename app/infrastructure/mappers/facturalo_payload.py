@@ -156,6 +156,10 @@ class FacturaloPayloadBuilder:
             comprobante["FormaPago"] = factura.forma_de_pago
             comprobante["TipoCambio"] = factura.tipo_de_cambio
 
+        condiciones = (factura.condiciones_de_pago or "").strip()
+        if condiciones:
+            comprobante["CondicionesDePago"] = condiciones
+
         impuestos_comprobante = self._build_impuestos_comprobante(factura.conceptos)
         if impuestos_comprobante:
             comprobante["Impuestos"] = impuestos_comprobante

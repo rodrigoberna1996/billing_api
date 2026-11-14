@@ -37,7 +37,8 @@ class LogisticsClient:
             return
 
         url = f"{self._base_url}/internal/trips/{trip_id}/cfdi"
-        payload: dict = {"timbre_uuid": cfdi_uuid}
+        timbre_uuid = cfdi_uuid.strip().upper()
+        payload: dict = {"timbre_uuid": timbre_uuid}
         if ccp:
             payload["ccp"] = ccp
 
@@ -55,7 +56,7 @@ class LogisticsClient:
                     logger.info(
                         "Callback logistics OK: trip_id=%s cfdi_uuid=%s",
                         trip_id,
-                        cfdi_uuid,
+                        timbre_uuid,
                     )
                 else:
                     logger.error(
@@ -98,7 +99,8 @@ class LogisticsClient:
             return
 
         url = f"{self._base_url}/internal/trips/{trip_id}/cfdi"
-        payload: dict = {"cfdi_uuid": cfdi_uuid}
+        uuid_norm = cfdi_uuid.strip().upper()
+        payload: dict = {"cfdi_uuid": uuid_norm}
         if motivo:
             payload["motivo"] = motivo
         if cancelled_at:
@@ -119,7 +121,7 @@ class LogisticsClient:
                     logger.info(
                         "Callback logistics (cancelación) OK: trip_id=%s cfdi_uuid=%s",
                         trip_id,
-                        cfdi_uuid,
+                        uuid_norm,
                     )
                 else:
                     logger.error(

@@ -171,7 +171,9 @@ class Invoice:
         pdf_b64: str | None = None,
     ) -> None:
         self.status = InvoiceStatus.issued
-        self.cfdi_uuid = uuid
+        # Folio fiscal siempre en mayúsculas (alineado a XML/PDF SAT y a requisitos
+        # de clientes como Amazon que rechazan el mismo UUID en distinto casing).
+        self.cfdi_uuid = uuid.strip().upper()
         self.pac_response = payload
         self.cfdi_xml = xml
         self.cfdi_pdf_b64 = pdf_b64

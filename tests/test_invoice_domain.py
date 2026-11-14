@@ -71,3 +71,21 @@ def test_mark_failed_clears_serie_and_folio() -> None:
     assert invoice.status == InvoiceStatus.failed
     assert invoice.serie is None
     assert invoice.folio is None
+
+
+def test_mark_issued_normalizes_cfdi_uuid_to_uppercase() -> None:
+    """Folio fiscal siempre en mayúsculas (XML/PDF SAT y reportes a clientes)."""
+    invoice = _invoice()
+    invoice.status = InvoiceStatus.pending
+    invoice.cfdi_uuid = None
+
+    invoice.mark_issued(
+        uuid="  d0a21c8b-1501-420e-b44a-beead46921c7  ",
+        payload={"code": "200"},
+        serie="CCP",
+        folio=4003,
+        provider="facturalo",
+    )
+
+    assert invoice.cfdi_uuid == "D0A21C8B-1501-420E-B44A-BEEAD46921C7"
+    assert invoice.status == InvoiceStatus.issued

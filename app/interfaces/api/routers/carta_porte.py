@@ -126,9 +126,12 @@ async def _timbrado_background(
 
     # --- 3. Procesar respuesta y persistir resultado (transacción breve) ---
     data = _extract_data_block(facturalo_response)
-    cfdi_uuid: str | None = data.get("UUID")
+    raw_uuid = data.get("UUID")
+    # Folio fiscal en MAYÚSCULAS para coincidir con XML/PDF y evitar duplicidad por casing.
+    cfdi_uuid: str | None = raw_uuid.strip().upper() if isinstance(raw_uuid, str) and raw_uuid.strip() else None
 
     if cfdi_uuid:
+        data["UUID"] = cfdi_uuid
         data.setdefault("cfdi_uuid", cfdi_uuid)
         if invoice.serie:
             data.setdefault("serie", invoice.serie)

@@ -227,6 +227,14 @@ class FacturaDTO(BaseModel):
     tipo: Literal["ingreso", "traslado"] = "ingreso"
     forma_de_pago: str = "03"
     metodo_de_pago: str = Field(default="PPD", alias="metodo_pago")
+    condiciones_de_pago: str | None = Field(
+        default=None,
+        description=(
+            "Texto libre Comprobante@CondicionesDePago (SAT Anexo 20 CFDI 4.0: "
+            "xs:string maxLength 1000). Opcional."
+        ),
+        max_length=1000,
+    )
     moneda: str = "MXN"
     tipo_de_cambio: str = "1"
     exportacion: str = "01"

@@ -98,9 +98,10 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
         return self._to_domain(orm)
 
     async def get_by_cfdi_uuid(self, cfdi_uuid: str) -> Invoice | None:
+        uuid_norm = cfdi_uuid.strip().upper()
         stmt = (
             select(models.InvoiceORM)
-            .where(models.InvoiceORM.cfdi_uuid == cfdi_uuid)
+            .where(func.upper(models.InvoiceORM.cfdi_uuid) == uuid_norm)
             .options(selectinload(models.InvoiceORM.recipient))
         )
         result = await self._session.execute(stmt)
@@ -162,9 +163,10 @@ class SQLAlchemyInvoiceRepository(InvoiceRepository):
 
     async def get_pac_response_by_cfdi_uuid(self, cfdi_uuid: str) -> dict | None:
         """Carga solo los campos de documentos (pac_response, cfdi_xml, cfdi_pdf_b64) sin relaciones."""
+        uuid_norm = cfdi_uuid.strip().upper()
         stmt = (
             select(models.InvoiceORM)
-            .where(models.InvoiceORM.cfdi_uuid == cfdi_uuid)
+            .where(func.upper(models.InvoiceORM.cfdi_uuid) == uuid_norm)
             .options(load_only(
                 models.InvoiceORM.pac_response,
                 models.InvoiceORM.cfdi_xml,

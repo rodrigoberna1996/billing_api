@@ -107,6 +107,35 @@ def test_build_campos_pdf_includes_emisor_contacto() -> None:
     assert comprobante["LugarExpedicion"] == "76800"
 
 
+def test_build_includes_condiciones_de_pago_when_present() -> None:
+    request = FacturifyCartaPorteRequest.model_validate(
+        {
+            **_EXAMPLE,
+            "factura": {
+                **_EXAMPLE["factura"],
+                "condiciones_de_pago": "  30 días  ",
+            },
+        }
+    )
+    payload = _builder().build(request)
+    assert payload["Comprobante"]["CondicionesDePago"] == "30 días"
+
+
+def test_build_omits_condiciones_de_pago_when_empty() -> None:
+    request = FacturifyCartaPorteRequest.model_validate(_EXAMPLE)
+    payload = _builder().build(request)
+    assert "CondicionesDePago" not in payload["Comprobante"]
+
+    request_blank = FacturifyCartaPorteRequest.model_validate(
+        {
+            **_EXAMPLE,
+            "factura": {**_EXAMPLE["factura"], "condiciones_de_pago": "   "},
+        }
+    )
+    payload_blank = _builder().build(request_blank)
+    assert "CondicionesDePago" not in payload_blank["Comprobante"]
+
+
 def test_build_ignores_serie_folio_from_request() -> None:
     """Serie/Folio ya no se toman del formulario: los asigna billing_api
 
